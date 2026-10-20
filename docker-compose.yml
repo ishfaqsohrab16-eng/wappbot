@@ -7,7 +7,7 @@ services:
   wappbot:
     build: .
     restart: unless-stopped
-    env_file: .env
+    # REMOVED: env_file: .env  <-- This was causing the crash
     environment:
       # Wiring inside this stack (overrides .env)
       PUBLIC_URL: http://wappbot:3000
@@ -15,6 +15,12 @@ services:
       STT_PROVIDER: whisper-asr
       STT_BASE_URL: http://wb-whisper:9000
       DATA_DIR: /app/data
+      
+      # Explicitly pass variables from Easypanel's Environment tab to the app
+      EVOLUTION_API_KEY: ${EVOLUTION_API_KEY}
+      EVOLUTION_DB_PASSWORD: ${EVOLUTION_DB_PASSWORD}
+      DATABASE_URL: ${DATABASE_URL} # Assuming you have a DB URL in your .env
+      
     volumes:
       - wappbot-data:/app/data
     expose:
