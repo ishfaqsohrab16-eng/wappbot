@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.env
+data/
+.test-data/
+.e2e-data/
+*.log

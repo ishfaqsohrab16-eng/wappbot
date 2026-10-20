@@ -1,0 +1,120 @@
+# WappBot full stack: dashboard + bot, Whisper (voice), Evolution API (WhatsApp) + its Postgres and Redis.
+# Deploy as ONE Easypanel "Compose" service. Values come from the .env file (Easypanel's Environment tab).
+# Only "wappbot" joins the shared "easypanel" network, to reach Ollama (wp_man_llm) and MySQL.
+# Nothing here publishes a port; give "wappbot" a domain on port 3000 in Easypanel.
+
+services:
+  wappbot:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # Wiring inside this stack (overrides .env)
+      PUBLIC_URL: http://wappbot:3000
+      EVOLUTION_BASE_URL: http://wb-evolution:8080
+      STT_PROVIDER: whisper-asr
+      STT_BASE_URL: http://wb-whisper:9000
+      DATA_DIR: /app/data
+    volumes:
+      - wappbot-data:/app/data
+    expose:
+      - "3000"
+    depends_on:
+      - wb-evolution
+      - wb-whisper
+    networks:
+      - default
+      - easypanel
+
+  wb-whisper:
+    image: onerahmet/openai-whisper-asr-webservice:${WHISPER_IMAGE_TAG:-v1.10.0}
+    restart: unless-stopped
+    environment:
+      ASR_ENGINE: faster_whisper
+      ASR_MODEL: ${WHISPER_MODEL:-small}
+    # Leave CPU for the LLM on the same VPS
+    cpus: ${WHISPER_CPUS:-4}
+    volumes:
+      - whisper-cache:/root/.cache
+    expose:
+      - "9000"
+
+  wb-evolution:
+    image: evoapicloud/evolution-api:${EVOLUTION_IMAGE_TAG:-v2.3.7}
+    restart: unless-stopped
+    environment:
+      SERVER_TYPE: http
+      SERVER_PORT: 8080
+      SERVER_URL: http://wb-evolution:8080
+      AUTHENTICATION_API_KEY: ${EVOLUTION_API_KEY}
+      LANGUAGE: en
+      LOG_LEVEL: ERROR,WARN,INFO
+      DEL_INSTANCE: "false"
+      TELEMETRY_ENABLED: "false"
+      CONFIG_SESSION_PHONE_CLIENT: ${BOT_NAME:-WappBot}
+      CONFIG_SESSION_PHONE_NAME: Chrome
+      QRCODE_LIMIT: 30
+      WEBHOOK_GLOBAL_ENABLED: "false"
+      DATABASE_PROVIDER: postgresql
+      DATABASE_CONNECTION_URI: postgresql://evolution:${EVOLUTION_DB_PASSWORD}@wb-evolution-db:5432/evolution?schema=public
+      DATABASE_CONNECTION_CLIENT_NAME: wappbot
+      DATABASE_SAVE_DATA_INSTANCE: "true"
+      DATABASE_SAVE_DATA_NEW_MESSAGE: "true"
+      DATABASE_SAVE_MESSAGE_UPDATE: "false"
+      DATABASE_SAVE_DATA_CONTACTS: "false"
+      DATABASE_SAVE_DATA_CHATS: "false"
+      DATABASE_SAVE_DATA_LABELS: "false"
+      DATABASE_SAVE_DATA_HISTORIC: "false"
+      CACHE_REDIS_ENABLED: "true"
+      CACHE_REDIS_URI: redis://wb-evolution-redis:6379/6
+      CACHE_REDIS_PREFIX_KEY: evolution
+      CACHE_REDIS_SAVE_INSTANCES: "false"
+      CACHE_LOCAL_ENABLED: "false"
+    volumes:
+      - evolution-instances:/evolution/instances
+    expose:
+      - "8080"
+    depends_on:
+      wb-evolution-db:
+        condition: service_healthy
+      wb-evolution-redis:
+        condition: service_healthy
+
+  wb-evolution-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: evolution
+      POSTGRES_PASSWORD: ${EVOLUTION_DB_PASSWORD}
+      POSTGRES_DB: evolution
+    volumes:
+      - evolution-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U evolution -d evolution"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  wb-evolution-redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - evolution-redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  wappbot-data:
+  whisper-cache:
+  evolution-instances:
+  evolution-db:
+  evolution-redis:
+
+networks:
+  default:
+  easypanel:
+    external: true
