@@ -40,8 +40,8 @@ services:
       DEFAULT_LLM_PROVIDER: google
       LLM_FALLBACK: local
       GOOGLE_API_KEY: AIzaSyB0us6xymdrck36O1X-SuD4sAh3vwiBUX0
-      GOOGLE_LLM_MODEL: gemini-2.5-flash
-      DEFAULT_LLM_MODEL: gemini-2.5-flash
+      GOOGLE_LLM_MODEL: gemini-flash-latest
+      DEFAULT_LLM_MODEL: gemini-flash-latest
       GOOGLE_LLM_BASE_URL: https://generativelanguage.googleapis.com/v1beta/openai
       GOOGLE_COOLDOWN_MS: 900000
       LLM_BASE_URL: http://wp_man_llm:11434/v1
