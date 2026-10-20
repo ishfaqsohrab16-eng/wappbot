@@ -35,21 +35,21 @@ services:
       DB_QUERY_TIMEOUT_MS: ${DB_QUERY_TIMEOUT_MS:-15000}
       DB_MAX_ROWS: ${DB_MAX_ROWS:-50}
       
-      # LLM Variables - FORCED TO 1.5-FLASH
-      LLM_PROVIDER: google
-      DEFAULT_LLM_PROVIDER: google
-      LLM_FALLBACK: local
-      GOOGLE_API_KEY: AQ.Ab8RN6KTY5O2ICdcr1DRjMQsKiM9WbdJnyjLVNBlVOMo-bvsTw
-      GOOGLE_LLM_MODEL: gemini-3.1-flash-lite
-      DEFAULT_LLM_MODEL: gemini-3.1-flash-lite
-      GOOGLE_LLM_BASE_URL: https://generativelanguage.googleapis.com/v1beta/openai
-      GOOGLE_COOLDOWN_MS: 900000
-      LLM_BASE_URL: http://wp_man_llm:11434/v1
-      LLM_API_KEY: ollama
-      LLM_MODEL: gpt-oss:20b
-      LLM_MAX_AGENT_STEPS: 5
-      LLM_CONCURRENCY: 3
-      LLM_TIMEOUT_MS: 120000
+      # LLM Variables
+      LLM_PROVIDER: ${LLM_PROVIDER:-google}
+      DEFAULT_LLM_PROVIDER: ${DEFAULT_LLM_PROVIDER:-google}
+      LLM_FALLBACK: ${LLM_FALLBACK:-local}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY}
+      GOOGLE_LLM_MODEL: ${GOOGLE_LLM_MODEL}
+      DEFAULT_LLM_MODEL: ${DEFAULT_LLM_MODEL}
+      GOOGLE_LLM_BASE_URL: ${GOOGLE_LLM_BASE_URL:-https://generativelanguage.googleapis.com/v1beta/openai}
+      GOOGLE_COOLDOWN_MS: ${GOOGLE_COOLDOWN_MS:-900000}
+      LLM_BASE_URL: ${LLM_BASE_URL}
+      LLM_API_KEY: ${LLM_API_KEY:-ollama}
+      LLM_MODEL: ${LLM_MODEL}
+      LLM_MAX_AGENT_STEPS: ${LLM_MAX_AGENT_STEPS:-5}
+      LLM_CONCURRENCY: ${LLM_CONCURRENCY:-3}
+      LLM_TIMEOUT_MS: ${LLM_TIMEOUT_MS:-120000}
       
       # Whisper Variables
       WHISPER_MODEL: ${WHISPER_MODEL:-small}
@@ -84,7 +84,7 @@ services:
       SERVER_TYPE: http
       SERVER_PORT: 8080
       SERVER_URL: http://wb-evolution:8080
-      AUTHENTICATION_API_KEY: ${EVOLUTION_API_KEY:-e5c536cb78881cb39e751f88495589d396a9b302e6310347}
+      AUTHENTICATION_API_KEY: ${EVOLUTION_API_KEY}
       LANGUAGE: en
       LOG_LEVEL: ERROR,WARN,INFO
       DEL_INSTANCE: "false"
@@ -94,7 +94,7 @@ services:
       QRCODE_LIMIT: 30
       WEBHOOK_GLOBAL_ENABLED: "false"
       DATABASE_PROVIDER: postgresql
-      DATABASE_CONNECTION_URI: postgresql://evolution:${EVOLUTION_DB_PASSWORD:-470a10bb1c58cab1fe790d9dd754dd3a}@wb-evolution-db:5432/evolution?schema=public
+      DATABASE_CONNECTION_URI: postgresql://evolution:${EVOLUTION_DB_PASSWORD}@wb-evolution-db:5432/evolution?schema=public
       DATABASE_CONNECTION_CLIENT_NAME: wappbot
       DATABASE_SAVE_DATA_INSTANCE: "true"
       DATABASE_SAVE_DATA_NEW_MESSAGE: "true"
@@ -123,7 +123,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: evolution
-      POSTGRES_PASSWORD: ${EVOLUTION_DB_PASSWORD:-470a10bb1c58cab1fe790d9dd754dd3a}
+      POSTGRES_PASSWORD: ${EVOLUTION_DB_PASSWORD}
       POSTGRES_DB: evolution
     volumes:
       - evolution-db:/var/lib/postgresql/data
