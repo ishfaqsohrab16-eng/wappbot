@@ -10,7 +10,7 @@ services:
       STT_BASE_URL: http://wb-whisper:9000
       DATA_DIR: /app/data
       
-      # App Variables (Mapped from your .env)
+      # App Variables
       PORT: ${PORT:-3000}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}
@@ -35,21 +35,21 @@ services:
       DB_QUERY_TIMEOUT_MS: ${DB_QUERY_TIMEOUT_MS:-15000}
       DB_MAX_ROWS: ${DB_MAX_ROWS:-50}
       
-      # LLM Variables (Gemini first, local Ollama if Gemini hits its limit)
-      LLM_PROVIDER: ${LLM_PROVIDER:-google}
-      DEFAULT_LLM_PROVIDER: ${DEFAULT_LLM_PROVIDER:-google}
-      LLM_FALLBACK: ${LLM_FALLBACK:-local}
-      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
-      GOOGLE_LLM_MODEL: ${GOOGLE_LLM_MODEL:-gemini-1.5-flash}
-      DEFAULT_LLM_MODEL: ${DEFAULT_LLM_MODEL:-gemini-1.5-flash}
-      GOOGLE_LLM_BASE_URL: ${GOOGLE_LLM_BASE_URL:-https://generativelanguage.googleapis.com/v1beta/openai}
-      GOOGLE_COOLDOWN_MS: ${GOOGLE_COOLDOWN_MS:-900000}
-      LLM_BASE_URL: ${LLM_BASE_URL}
-      LLM_API_KEY: ${LLM_API_KEY:-ollama}
-      LLM_MODEL: ${LLM_MODEL}
-      LLM_MAX_AGENT_STEPS: ${LLM_MAX_AGENT_STEPS:-5}
-      LLM_CONCURRENCY: ${LLM_CONCURRENCY:-3}
-      LLM_TIMEOUT_MS: ${LLM_TIMEOUT_MS:-120000}
+      # LLM Variables - FORCED TO 1.5-FLASH
+      LLM_PROVIDER: google
+      DEFAULT_LLM_PROVIDER: google
+      LLM_FALLBACK: local
+      GOOGLE_API_KEY: AIzaSyB0us6xymdrck36O1X-SuD4sAh3vwiBUX0
+      GOOGLE_LLM_MODEL: gemini-1.5-flash
+      DEFAULT_LLM_MODEL: gemini-1.5-flash
+      GOOGLE_LLM_BASE_URL: https://generativelanguage.googleapis.com/v1beta/openai
+      GOOGLE_COOLDOWN_MS: 900000
+      LLM_BASE_URL: http://wp_man_llm:11434/v1
+      LLM_API_KEY: ollama
+      LLM_MODEL: gpt-oss:20b
+      LLM_MAX_AGENT_STEPS: 5
+      LLM_CONCURRENCY: 3
+      LLM_TIMEOUT_MS: 120000
       
       # Whisper Variables
       WHISPER_MODEL: ${WHISPER_MODEL:-small}
@@ -84,7 +84,6 @@ services:
       SERVER_TYPE: http
       SERVER_PORT: 8080
       SERVER_URL: http://wb-evolution:8080
-      # Kept hardcoded fallbacks to be safe
       AUTHENTICATION_API_KEY: ${EVOLUTION_API_KEY:-e5c536cb78881cb39e751f88495589d396a9b302e6310347}
       LANGUAGE: en
       LOG_LEVEL: ERROR,WARN,INFO
