@@ -39,7 +39,7 @@ services:
       LLM_PROVIDER: google
       DEFAULT_LLM_PROVIDER: google
       LLM_FALLBACK: local
-      GOOGLE_API_KEY: AIzaSyB0us6xymdrck36O1X-SuD4sAh3vwiBUX0
+      GOOGLE_API_KEY: AQ.Ab8RN6KTY5O2ICdcr1DRjMQsKiM9WbdJnyjLVNBlVOMo-bvsTw
       GOOGLE_LLM_MODEL: gemini-3.1-flash-lite
       DEFAULT_LLM_MODEL: gemini-3.1-flash-lite
       GOOGLE_LLM_BASE_URL: https://generativelanguage.googleapis.com/v1beta/openai
