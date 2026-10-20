@@ -51,8 +51,16 @@ export default function Overview() {
         <ServiceCard
           title="AI model"
           ok={llm.ok}
-          detail={llm.ok ? cfg.model : llm.error}
-          sub={llm.queue && `Queue: ${llm.queue.active} running · ${llm.queue.waiting} waiting (max ${llm.queue.maxQueue})`}
+          detail={llm.ok ? `${cfg.provider || "local"} · ${cfg.model}` : llm.error}
+          sub={
+            [
+              llm.queue && `Queue: ${llm.queue.active} running · ${llm.queue.waiting} waiting`,
+              cfg.fallback && cfg.provider === "google" ? `Fallback: ${cfg.localModel}` : null,
+              llm.cooldownMs ? `Gemini cooldown ${Math.ceil(llm.cooldownMs / 60000)}m` : null,
+            ]
+              .filter(Boolean)
+              .join(" · ") || undefined
+          }
         />
         <ServiceCard
           title="Database"
@@ -74,7 +82,9 @@ export default function Overview() {
           <h3>Bot settings</h3>
           <dl className="kv">
             <dt>Bot name</dt><dd>{cfg.botName}</dd>
+            <dt>Provider</dt><dd>{cfg.provider || "local"}</dd>
             <dt>Model</dt><dd>{cfg.model}</dd>
+            <dt>Fallback</dt><dd>{cfg.fallback === "local" ? cfg.localModel : cfg.fallback || "—"}</dd>
             <dt>Reasoning</dt><dd>{cfg.reasoningEffort}</dd>
             <dt>Max reply tokens</dt><dd>{cfg.maxTokens}</dd>
             <dt>Rate limit</dt><dd>{cfg.rateLimitPerMin} / min per user</dd>

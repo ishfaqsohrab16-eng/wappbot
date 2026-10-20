@@ -49,21 +49,28 @@ export const config = {
     autoSetWebhook: bool("EVOLUTION_AUTO_SET_WEBHOOK", true),
   },
 
-  // LLM (Ollama, OpenAI-compatible)
+  // LLM: Gemini (google) with local Ollama fallback
   llm: {
+    provider: (str("LLM_PROVIDER") || str("DEFAULT_LLM_PROVIDER") || (str("GOOGLE_API_KEY") ? "google" : "local")).toLowerCase(),
+    fallback: str("LLM_FALLBACK", "local").toLowerCase(),
+    googleApiKey: str("GOOGLE_API_KEY"),
+    googleModel: str("GOOGLE_LLM_MODEL") || str("DEFAULT_LLM_MODEL") || "gemini-2.0-flash",
+    googleBaseUrl: str("GOOGLE_LLM_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai").replace(/\/$/, ""),
+    googleCooldownMs: num("GOOGLE_COOLDOWN_MS", 15 * 60 * 1000),
     baseUrl: str("LLM_BASE_URL", "http://wp_man_llm:11434/v1").replace(/\/$/, ""),
     apiKey: str("LLM_API_KEY", "ollama"),
     model: str("LLM_MODEL", "gpt-oss:20b"),
-    maxTokens: num("LLM_MAX_TOKENS", 500),
-    botMaxTokens: num("LLM_BOT_MAX_TOKENS", 400),
-    temperature: num("LLM_TEMPERATURE", 0.7),
+    maxTokens: num("LLM_MAX_TOKENS", 800),
+    botMaxTokens: num("LLM_BOT_MAX_TOKENS", 500),
+    temperature: num("LLM_TEMPERATURE", 0.3),
     reasoningEffort: str("LLM_REASONING_EFFORT", "low"),
     timeoutMs: num("LLM_TIMEOUT_MS", 120000),
-    concurrency: num("LLM_CONCURRENCY", 1),
+    concurrency: num("LLM_CONCURRENCY", str("GOOGLE_API_KEY") ? 3 : 1),
     maxQueue: num("LLM_MAX_QUEUE", 10),
     rateLimitPerMin: num("LLM_RATE_LIMIT_PER_MIN", 10),
     historyMessages: num("LLM_HISTORY_MESSAGES", 8),
     maxUserChars: num("LLM_MAX_USER_CHARS", 2000),
+    maxAgentSteps: num("LLM_MAX_AGENT_STEPS", 5),
   },
 
   // Database (read-only)
@@ -113,5 +120,7 @@ export function configWarnings() {
     w.push("EVOLUTION_BASE_URL / EVOLUTION_API_KEY / EVOLUTION_INSTANCE not fully set: WhatsApp disabled.");
   if (!config.evolution.webhookSecret) w.push("WEBHOOK_SECRET is empty: the webhook is not protected.");
   if (!config.db.name || !config.db.user) w.push("DB_NAME / DB_USER not set: database features disabled.");
+  if ((config.llm.provider === "google" || config.llm.provider === "auto") && !config.llm.googleApiKey)
+    w.push("LLM_PROVIDER is google but GOOGLE_API_KEY is empty; falling back to local LLM.");
   return w;
 }

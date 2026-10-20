@@ -4,13 +4,14 @@ import { chat, streamChat, llmQueue } from "../llm/client.js";
 import { getSchema, describeTables, listTableNames, schemaMode, resolveTables } from "../db/schema.js";
 import { runQuery } from "../db/pool.js";
 import { guardSql, extractSql } from "../db/sqlGuard.js";
+import { getCatalog, rankCatalog, formatRanked, lookupNameHits } from "../db/catalog.js";
 import { getHistory, appendHistory } from "../store/history.js";
+import { looksLikeDataQuestion } from "./intent.js";
 import * as P from "./prompts.js";
 
-const PLAN_TOKENS = 700;
+const PLAN_TOKENS = 900;
 const RESULT_CHARS = 3500;
 
-/** History trimmed to a char budget so the 4096-token context is not blown. */
 function historyFor(key, maxChars) {
   const out = [];
   let used = 0;
@@ -45,7 +46,7 @@ export async function consumePlan(tokens, onToken) {
         action = m[1].toLowerCase();
         sent = m[0].length;
       } else if (buf.trim().length >= 8 && !couldBeActionPrefix(buf)) {
-        action = "reply"; // model ignored the format: treat it all as the reply
+        action = "reply";
       }
     }
     if (action === "reply" && onToken && buf.length > sent) {
@@ -64,7 +65,7 @@ export async function consumePlan(tokens, onToken) {
 }
 
 function plan(messages, { signal, onToken }) {
-  const tokens = streamChat(messages, { signal, queued: false, maxTokens: PLAN_TOKENS, temperature: 0.2 });
+  const tokens = streamChat(messages, { signal, queued: false, maxTokens: PLAN_TOKENS, temperature: 0.15 });
   return consumePlan(tokens, onToken);
 }
 
@@ -93,7 +94,6 @@ function formatRows(rows) {
   return lines.join("\n");
 }
 
-/** Validate and run SQL; on failure ask the model to fix it once. */
 async function executeWithRetry(sqlText, messages, signal) {
   let candidate = extractSql(sqlText);
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -136,17 +136,155 @@ async function streamAnswer(messages, { signal, onToken, maxTokens }) {
   return out.trim();
 }
 
+function observationUser(text, q) {
+  const capped = q.rows.length >= config.db.maxRows;
+  return (
+    `${P.contextLine({ language: undefined })}\nQuestion: ${text}\n\n` +
+    `Query results: ${q.rows.length} row(s)${capped ? ` (cut off at the ${config.db.maxRows}-row limit)` : ""}\n` +
+    (q.rows.length ? formatRows(q.rows) : "(no rows)")
+  );
+}
+
+async function resolveNames({ text, catalog, history, userMsg, signal }) {
+  if (!catalog.text && !catalog.groups.length) return "";
+  const ranked = rankCatalog(catalog, text);
+  if (ranked.length && ranked[0].score >= 86 && (ranked.length === 1 || ranked[0].score - ranked[1].score >= 12)) {
+    return formatRanked(ranked.slice(0, 6));
+  }
+  const raw = await chat(
+    [
+      { role: "system", content: P.resolveNamesPrompt(catalog.text) },
+      ...history.slice(-4),
+      userMsg,
+      ranked.length
+        ? { role: "user", content: `Automatic closest matches:\n${formatRanked(ranked)}\nPick the official values.` }
+        : { role: "user", content: "No automatic matches. Guess the closest official values or UNKNOWN." },
+    ],
+    { signal, queued: false, maxTokens: 400, temperature: 0 }
+  );
+  return [ranked.length ? formatRanked(ranked.slice(0, 8)) : "", raw.replace(ACTION_RE, "").trim()].filter(Boolean).join("\n");
+}
+
+const TABLE_FALLBACK = /center|centre|campus|batch|student|enroll|user|course|program|institut|class|session/i;
+
+function fallbackTables(schema, catalog, text) {
+  const names = [];
+  for (const h of rankCatalog(catalog, text, { limit: 30, minScore: 40 })) {
+    if (!names.includes(h.table)) names.push(h.table);
+  }
+  for (const t of schema.tables.keys()) {
+    if (TABLE_FALLBACK.test(t) && !names.includes(t)) names.push(t);
+    if (names.length >= 8) break;
+  }
+  return names.slice(0, 8);
+}
+
+async function pickTables(schema, history, userMsg, signal) {
+  const pickMessages = [
+    { role: "system", content: P.tablePickerPrompt(listTableNames(schema)) },
+    ...history,
+    userMsg,
+  ];
+  const decision = await plan(pickMessages, { signal });
+  if (decision.action === "reply") return { tables: null, decision };
+  const names = decision.action === "tables" ? decision.body.split(/[\s,]+/) : [];
+  const tables = resolveTables(schema, names).slice(0, 8);
+  return { tables, decision: tables.length ? null : { action: "reply", body: "" } };
+}
+
+async function investigate({ schema, tables, catalog, text, language, history, userMsg, signal, onToken, onStatus, maxTokens }) {
+  const schemaText = describeTables(schema, tables);
+  const ranked = rankCatalog(catalog, text);
+  onStatus?.("thinking");
+  let resolved = "";
+  if (looksLikeDataQuestion(text)) {
+    try {
+      resolved = await resolveNames({ text, catalog, history, userMsg, signal });
+    } catch (err) {
+      log.warn("Name resolution skipped:", err.message);
+    }
+  }
+  const extra = P.extraNotes({
+    catalogText: catalog.text,
+    rankedText: formatRanked(ranked),
+    resolvedText: resolved,
+  });
+
+  const observations = [];
+  let lastQuery = null;
+  const maxSteps = Math.max(1, config.llm.maxAgentSteps);
+  const usedTables = tables;
+
+  for (let step = 0; step < maxSteps; step++) {
+    const sys =
+      step === 0
+        ? P.plannerPrompt(schemaText, extra)
+        : P.investigatorPrompt(schemaText, extra);
+    const messages = [{ role: "system", content: sys }, ...history, userMsg, ...observations];
+    const streamReply = step > 0 || !looksLikeDataQuestion(text);
+    const decision = await plan(messages, { signal, onToken: streamReply ? onToken : undefined });
+
+    if (decision.action !== "sql") {
+      if (looksLikeDataQuestion(text) && step === 0 && !lastQuery) {
+        log.debug("Overriding chat reply with SQL investigation");
+        const forced = await plan(
+          [
+            { role: "system", content: P.sqlWriterPrompt(schemaText, extra) },
+            ...history,
+            userMsg,
+            { role: "user", content: "This needs database facts. Output ACTION: sql and a query. If names are unclear, SELECT DISTINCT candidate names first." },
+          ],
+          { signal }
+        );
+        if (forced.action === "sql") {
+          decision.action = "sql";
+          decision.body = forced.body;
+        } else {
+          return { action: "reply", reply: decision.body, streamed: decision.streamed };
+        }
+      } else {
+        return { action: "reply", reply: decision.body, streamed: decision.streamed, sql: lastQuery?.sql, rowCount: lastQuery?.rows.length };
+      }
+    }
+
+    onStatus?.("querying");
+    const q = await executeWithRetry(decision.body, messages, signal);
+    lastQuery = q;
+    observations.push({ role: "assistant", content: `ACTION: sql\n${q.sql}` });
+    observations.push({ role: "user", content: observationUser(text, q) });
+    log.debug(`Investigate step ${step + 1}: ${q.rows.length} rows`);
+
+    if (!q.rows.length) {
+      const hits = await lookupNameHits(schema, text, usedTables);
+      if (hits.length) {
+        observations.push({
+          role: "user",
+          content:
+            "The query returned no rows. Similar names found in the database:\n" +
+            formatRanked(hits) +
+            "\nWrite a new ACTION: sql using these official values, or ACTION: reply if none fit.",
+        });
+      }
+    }
+  }
+
+  onStatus?.("answering");
+  const content =
+    lastQuery
+      ? observations
+          .filter((m) => m.role === "user")
+          .map((m) => m.content)
+          .join("\n\n")
+      : `${P.contextLine({ language })}\nQuestion: ${text}\n\n(no query results)`;
+  const reply = await streamAnswer(
+    [{ role: "system", content: P.answerPrompt() }, ...history.slice(-4), { role: "user", content }],
+    { signal, onToken, maxTokens }
+  );
+  return { action: "sql", reply, sql: lastQuery?.sql, rowCount: lastQuery?.rows.length ?? 0 };
+}
+
 /**
  * Answer one user message.
- * @param {object} p
- * @param {string} p.text         the user's message (already transcribed if voice)
- * @param {string} p.historyKey   conversation key (phone number or web user)
- * @param {string} [p.language]   language hint from STT
- * @param {AbortSignal} [p.signal]
- * @param {(t:string)=>void} [p.onToken]   streaming callback (web chat)
- * @param {(s:string)=>void} [p.onStatus]  progress callback ("thinking", "querying", "answering")
- * @param {()=>void} [p.release]  a queue slot already acquired by the caller
- * @param {number} [p.maxTokens]
  */
 export async function runAssistant(p) {
   const started = Date.now();
@@ -155,77 +293,59 @@ export async function runAssistant(p) {
   const status = (s) => p.onStatus?.(s);
   const maxTokens = p.maxTokens ?? config.llm.botMaxTokens;
   const userMsg = { role: "user", content: `${P.contextLine({ language: p.language })}\n${text}` };
+  const history = historyFor(p.historyKey, 1500);
 
   try {
     const schema = await getSchema();
     let result;
 
     if (!schema.tables.size) {
-      // No database available: plain chat so the bot still answers.
       status("answering");
       const sys =
         P.answerPrompt() +
         "\n\nThe database is currently unavailable. If the user asks for data, say the data service is temporarily unavailable.";
       const reply = await streamAnswer(
-        [{ role: "system", content: sys }, ...historyFor(p.historyKey, 1500), userMsg],
+        [{ role: "system", content: sys }, ...history, userMsg],
         { signal: p.signal, onToken: p.onToken, maxTokens }
       );
       result = { action: "reply", reply };
     } else {
-      status("thinking");
+      const catalog = await getCatalog(schema);
+      let tables;
       const mode = schemaMode(schema);
-      let planMessages;
-      let decision;
-
-      if (mode === "full") {
-        planMessages = [
-          { role: "system", content: P.plannerPrompt(describeTables(schema)) },
-          ...historyFor(p.historyKey, 1500),
-          userMsg,
-        ];
-        decision = await plan(planMessages, p);
-      } else {
-        const pickMessages = [
-          { role: "system", content: P.tablePickerPrompt(listTableNames(schema)) },
-          ...historyFor(p.historyKey, 1200),
-          userMsg,
-        ];
-        decision = await plan(pickMessages, p);
-        if (decision.action === "tables") {
-          const tables = resolveTables(schema, decision.body.split(/[\s,]+/)).slice(0, 6);
-          log.debug("Picked tables:", tables);
-          if (!tables.length) {
-            decision = { action: "reply", body: "" };
-          } else {
-            planMessages = [
-              { role: "system", content: P.sqlWriterPrompt(describeTables(schema, tables)) },
-              ...historyFor(p.historyKey, 800),
-              userMsg,
-            ];
-            decision = await plan(planMessages, { signal: p.signal });
-          }
+      if (mode !== "full") {
+        status("thinking");
+        const picked = await pickTables(schema, historyFor(p.historyKey, 800), userMsg, p.signal);
+        if (picked.decision?.action === "reply" && !looksLikeDataQuestion(text)) {
+          const reply = picked.decision.body || "I could not find that information. Could you rephrase your question?";
+          if (!picked.decision.streamed) p.onToken?.(reply);
+          result = { action: "reply", reply };
+        } else {
+          const fb = fallbackTables(schema, catalog, text);
+          tables = picked.tables?.length ? picked.tables : fb.length ? fb : undefined;
         }
       }
-
-      if (decision.action === "sql") {
-        status("querying");
-        const q = await executeWithRetry(decision.body, planMessages, p.signal);
-        status("answering");
-        const capped = q.rows.length >= config.db.maxRows;
-        const content =
-          `${P.contextLine({ language: p.language })}\nQuestion: ${text}\n\n` +
-          `Query results: ${q.rows.length} row(s)${capped ? ` (cut off at the ${config.db.maxRows}-row limit)` : ""}\n` +
-          (q.rows.length ? formatRows(q.rows) : "(no rows)");
-        const reply = await streamAnswer(
-          [{ role: "system", content: P.answerPrompt() }, ...historyFor(p.historyKey, 600), { role: "user", content }],
-          { signal: p.signal, onToken: p.onToken, maxTokens }
-        );
-        result = { action: "sql", reply, sql: q.sql, rowCount: q.rows.length };
-      } else {
-        const fallback = !decision.body;
-        const reply = decision.body || "I could not find that information. Could you rephrase your question?";
-        if (fallback || !decision.streamed) p.onToken?.(reply);
-        result = { action: "reply", reply };
+      if (!result) {
+        result = await investigate({
+          schema,
+          tables,
+          catalog,
+          text,
+          language: p.language,
+          history,
+          userMsg,
+          signal: p.signal,
+          onToken: p.onToken,
+          onStatus: status,
+          maxTokens,
+        });
+        if (!result.reply) {
+          const fallback = "I could not find that information. Could you rephrase your question?";
+          p.onToken?.(fallback);
+          result.reply = fallback;
+        } else if (result.action === "reply" && !result.streamed) {
+          p.onToken?.(result.reply);
+        }
       }
     }
 

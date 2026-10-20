@@ -35,9 +35,26 @@ services:
       DB_QUERY_TIMEOUT_MS: ${DB_QUERY_TIMEOUT_MS:-15000}
       DB_MAX_ROWS: ${DB_MAX_ROWS:-50}
       
+<<<<<<< Updated upstream
       # LLM Variables
       LLM_BASE_URL: ${LLM_BASE_URL}
       LLM_MODEL: ${LLM_MODEL}
+=======
+      # LLM Variables (Gemini first, local Ollama if Gemini hits its limit)
+      LLM_PROVIDER: ${LLM_PROVIDER:-google}
+      DEFAULT_LLM_PROVIDER: ${DEFAULT_LLM_PROVIDER:-google}
+      LLM_FALLBACK: ${LLM_FALLBACK:-local}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      GOOGLE_LLM_MODEL: ${GOOGLE_LLM_MODEL:-gemini-2.0-flash}
+      DEFAULT_LLM_MODEL: ${DEFAULT_LLM_MODEL:-gemini-2.0-flash}
+      GOOGLE_LLM_BASE_URL: ${GOOGLE_LLM_BASE_URL:-https://generativelanguage.googleapis.com/v1beta/openai}
+      LLM_BASE_URL: ${LLM_BASE_URL}
+      LLM_API_KEY: ${LLM_API_KEY:-ollama}
+      LLM_MODEL: ${LLM_MODEL}
+      LLM_MAX_AGENT_STEPS: ${LLM_MAX_AGENT_STEPS:-5}
+      LLM_CONCURRENCY: ${LLM_CONCURRENCY:-3}
+      LLM_TIMEOUT_MS: ${LLM_TIMEOUT_MS:-120000}
+>>>>>>> Stashed changes
       
       # Whisper Variables
       WHISPER_MODEL: ${WHISPER_MODEL:-small}

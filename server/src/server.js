@@ -6,6 +6,7 @@ import { log } from "./logger.js";
 import { apiRouter, webhookUrl } from "./routes/api.js";
 import { webhookRouter } from "./routes/webhook.js";
 import { getSchema } from "./db/schema.js";
+import { getCatalog } from "./db/catalog.js";
 import { closePool, dbEnabled } from "./db/pool.js";
 import { flushUsers } from "./store/users.js";
 import { ensureInstance, evolutionEnabled } from "./whatsapp/evolution.js";
@@ -36,7 +37,7 @@ app.use((err, _req, res, _next) => {
 const server = app.listen(config.port, () => {
   log.info(`wappbot listening on :${config.port}`);
   for (const w of configWarnings()) log.warn(w);
-  if (dbEnabled()) getSchema();
+  if (dbEnabled()) getSchema().then((s) => getCatalog(s)).catch((err) => log.warn("Schema/catalog warmup failed:", err.message));
   if (config.evolution.autoSetWebhook && evolutionEnabled()) setupWhatsApp();
 });
 

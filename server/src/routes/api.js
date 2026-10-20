@@ -9,6 +9,7 @@ import { runAssistant } from "../bot/assistant.js";
 import { clearHistory } from "../store/history.js";
 import { listUsers, addUser, removeUser, adminNumbers } from "../store/users.js";
 import { getSchema, schemaSummary } from "../db/schema.js";
+import { invalidateCatalog } from "../db/catalog.js";
 import { collectHealth } from "../health.js";
 import {
   setWebhook,
@@ -40,7 +41,12 @@ apiRouter.get("/auth/me", requireAuth, (req, res) => res.json({ user: req.user.s
 // Public, minimal: only says whether the model is ready.
 apiRouter.get("/chat/health", async (_req, res) => {
   const h = await llmHealth();
-  res.status(h.ok ? 200 : 503).json({ ok: h.ok, model: h.model, modelPresent: Boolean(h.modelPresent) });
+  res.status(h.ok ? 200 : 503).json({
+    ok: h.ok,
+    provider: h.provider,
+    model: h.model,
+    modelPresent: Boolean(h.modelPresent),
+  });
 });
 
 apiRouter.get("/status", requireAuth, async (_req, res) => {
@@ -49,7 +55,11 @@ apiRouter.get("/status", requireAuth, async (_req, res) => {
     ...health,
     config: {
       botName: config.bot.name,
-      model: config.llm.model,
+      provider: health.llm?.provider || config.llm.provider,
+      model: health.llm?.model || config.llm.model,
+      googleModel: config.llm.googleModel,
+      localModel: config.llm.model,
+      fallback: config.llm.fallback,
       reasoningEffort: config.llm.reasoningEffort,
       maxTokens: config.llm.botMaxTokens,
       rateLimitPerMin: config.llm.rateLimitPerMin,
@@ -154,6 +164,7 @@ apiRouter.get("/schema", requireAuth, async (_req, res) => {
 });
 
 apiRouter.post("/schema/refresh", requireAuth, async (_req, res) => {
+  invalidateCatalog();
   res.json(schemaSummary(await getSchema({ refresh: true })));
 });
 
