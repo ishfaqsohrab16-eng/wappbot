@@ -96,6 +96,10 @@ export const config = {
     ),
     schemaFullMaxChars: num("DB_SCHEMA_FULL_MAX_CHARS", 6000),
     schemaNotes: str("DB_SCHEMA_NOTES"),
+    ignoreTablesRegex: str(
+      "DB_IGNORE_TABLES_REGEX",
+      "^(migrations|password_resets?|password_reset_tokens|failed_jobs|jobs|job_batches|sessions|cache|cache_locks|personal_access_tokens|telescope_.*|oauth_.*|pulse_.*)$"
+    ),
   },
 
   // Speech-to-text

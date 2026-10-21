@@ -7,7 +7,7 @@ import { guardSql, extractSql, expandStars } from "../db/sqlGuard.js";
 import { getCatalog, rankCatalog, formatRanked, lookupNameHits } from "../db/catalog.js";
 import { getHistory, appendHistory, getLastLookup, setLastLookup } from "../store/history.js";
 import { looksLikeDataQuestion, smallTalkReply, identifierHints } from "./intent.js";
-import { parseJson, chooseTables, formatRows, transcript, lastLookupText } from "./context.js";
+import { parseJson, chooseTables, formatRows, transcript, lastLookupText, resolveIdColumns } from "./context.js";
 import * as P from "./prompts.js";
 
 // Swappable for tests.
@@ -279,6 +279,14 @@ export async function runAssistant(p) {
       });
       mark("clarify", t0);
       return finish({ action: "clarify", reply });
+    }
+
+    // Show names instead of ids (course_id 3 → course "Web Development").
+    if (result.rows.length) {
+      t0 = Date.now();
+      const used = tablesInSql(schema, result.sql);
+      result.rows = await resolveIdColumns(schema, result.rows, deps.runQuery, { selfTable: used.length === 1 ? used[0] : undefined });
+      mark("names", t0);
     }
 
     setLastLookup(key, {

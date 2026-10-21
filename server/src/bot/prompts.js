@@ -20,7 +20,7 @@ const SQL_RULES = () =>
     `- At most ${config.db.maxRows} rows (add LIMIT). For "how many" use COUNT(*) or COUNT(DISTINCT …) with a clear alias.`,
     "- Forgiving text matching: LIKE '%word%' on each important word joined with AND, never one long exact string.",
     "- 'batch 10' may be stored as 'Batch 10', 'Batch-10', 'B10' or 10 in a number column; avoid matching 100/110.",
-    "- Full details of a record: select all its columns and JOIN lookup tables for names instead of ids.",
+    "- Full details of a record: select all its columns. Always JOIN lookup tables to return names (course, center, batch, city…) instead of raw ids.",
     "- 'Current/running/active': use a status column if one exists, else start date <= CURDATE() AND (end date >= CURDATE() OR end date IS NULL). 'Latest': ORDER BY date or id DESC LIMIT 1.",
     "- Use CURDATE()/NOW() for relative dates.",
   ].join("\n");
@@ -29,7 +29,7 @@ const SQL_RULES = () =>
 export function systemPrompt({ schemaText, full }) {
   return [
     `You are ${config.bot.name}, a smart and friendly WhatsApp data assistant. ${config.bot.contextNote}`,
-    `You have read-only access to a MySQL database. ${full ? "Complete schema" : "Tables with their first columns (more columns are given when needed)"}, as table(column:type), * = primary key:\n${schemaText}`,
+    `You have read-only access to a MySQL database. ${full ? "Complete schema" : "Tables with their first columns (more columns are given when needed)"}, as table(column:type), * = primary key, columns without a type are text:\n${schemaText}`,
     config.db.schemaNotes ? `Notes about the data: ${config.db.schemaNotes}` : "",
     SQL_RULES(),
     LANGUAGE_RULE,
@@ -93,7 +93,8 @@ export function answerTask({ text, question, rowsText, rowCount, capped, closeNa
     [
       "Write the WhatsApp reply now, as plain text (not JSON):",
       "- Use ONLY these rows; never invent data. No SQL, table or column names.",
-      "- Direct answer first, then short details. Field names in plain words (std_cnic → CNIC). Skip empty fields and internal ids.",
+      "- Direct answer first, then short details. For a person, start with their name. Field names in plain words (std_cnic → CNIC, course → Course).",
+      "- Never show id numbers (id, course_id, center_id…); show the names that are given instead. Skip empty fields.",
       "- If you used an official name that differs from the user's spelling, mention it.",
       "- No rows: say nothing matched, mention close names if any, and ask the user to check the spelling/number or add a detail.",
     ].join("\n"),

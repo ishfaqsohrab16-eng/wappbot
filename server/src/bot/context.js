@@ -1,5 +1,6 @@
 import { describeTables, resolveTables } from "../db/schema.js";
 import { queryTokens } from "./intent.js";
+import { ident } from "../db/catalog.js";
 
 const MAX_TABLES = 10;
 const RESULT_CHARS = 3500;
@@ -18,6 +19,7 @@ export function parseJson(text) {
 }
 
 function singular(w) {
+  w = w.replace(/centre/g, "center");
   if (w.length <= 3) return w;
   return w.replace(/ies$/, "y").replace(/(ch|sh|ss|x|z)es$/, "$1").replace(/([^s])s$/, "$1");
 }
@@ -44,23 +46,105 @@ export function tablesByWords(schema, text) {
   return out.sort((a, b) => a.length - b.length);
 }
 
-/** For `batch_id`-style columns, find the referenced lookup table. */
-export function joinTables(schema, tables) {
-  const byWord = new Map();
-  for (const name of schema.tables.keys()) {
-    const w = tableWords(name).join("_");
-    if (!byWord.has(w) || name.length < byWord.get(w).length) byWord.set(w, name);
+const refCache = new WeakMap();
+
+/** Lookup table a `course_id` / `centerId` / `std_batch_id` column points to, or null. */
+export function refTableFor(schema, column, selfTable) {
+  let byWord = refCache.get(schema);
+  if (!byWord) {
+    byWord = new Map();
+    for (const name of schema.tables.keys()) {
+      const w = tableWords(name).join("_");
+      if (!byWord.has(w) || name.length < byWord.get(w).length) byWord.set(w, name);
+    }
+    refCache.set(schema, byWord);
   }
+  const m = String(column)
+    .replace(/([a-z])([A-Z])/g, "$1_$2")
+    .toLowerCase()
+    .match(/^(.+?)_?id$/);
+  if (!m) return null;
+  const base = m[1].replace(/^(fk|std|student|ref)_(?=.)/, "").replace(/_$/, "");
+  const parts = base.split("_").map(singular);
+  const ref = byWord.get(parts.join("_")) || byWord.get(parts.at(-1));
+  return ref && ref !== selfTable ? ref : null;
+}
+
+/** For `batch_id`-style columns, find the referenced lookup tables. */
+export function joinTables(schema, tables) {
   const out = [];
   for (const t of tables) {
     for (const c of schema.tables.get(t)?.columns || []) {
-      const m = c.name.toLowerCase().match(/^(.+?)_?id$/);
-      if (!m || c.key === "PRI") continue;
-      const ref = byWord.get(singular(m[1].replace(/^(fk_|std_)/, "")));
-      if (ref && ref !== t && !tables.includes(ref) && !out.includes(ref)) out.push(ref);
+      if (c.key === "PRI") continue;
+      const ref = refTableFor(schema, c.name, t);
+      if (ref && !tables.includes(ref) && !out.includes(ref)) out.push(ref);
     }
   }
   return out;
+}
+
+const LABEL_RE = /(^|_)(full_?name|name|title|label|code)$/i;
+
+/** Primary key and best human-readable column of a lookup table. */
+export function labelColumns(schema, table) {
+  const cols = schema.tables.get(table)?.columns || [];
+  const pk = cols.find((c) => c.key === "PRI")?.name || cols.find((c) => c.name.toLowerCase() === "id")?.name;
+  const words = tableWords(table);
+  const score = (c) => {
+    const n = c.name.toLowerCase();
+    let s = /name$/.test(n) ? 3 : /title$/.test(n) ? 2 : 1;
+    if (words.some((w) => n.startsWith(w))) s += 2;
+    if (/^(short|user|slug|login)/.test(n)) s -= 2;
+    return s;
+  };
+  const labels = cols.filter((c) => LABEL_RE.test(c.name) && c.name !== pk).sort((a, b) => score(b) - score(a));
+  return pk && labels.length ? { pk, label: labels[0].name } : null;
+}
+
+function prettyKey(column) {
+  return String(column)
+    .replace(/([a-z])([A-Z])/g, "$1_$2")
+    .replace(/_?id$/i, "")
+    .replace(/^(fk|std|ref)_/i, "");
+}
+
+/**
+ * Replace *_id values in result rows with the referenced record's name
+ * (course_id 3 → course "Web Development"). `query(sql, params)` runs SQL.
+ */
+export async function resolveIdColumns(schema, rows, query, { selfTable } = {}) {
+  if (!rows?.length) return rows;
+  const keys = Object.keys(rows[0]).filter((k) => /(_id|[a-z]Id)$/.test(k));
+  const maps = [];
+  for (const k of keys.slice(0, 8)) {
+    const ref = refTableFor(schema, k, selfTable);
+    const lc = ref && labelColumns(schema, ref);
+    if (!lc) continue;
+    const ids = [...new Set(rows.map((r) => r[k]).filter((v) => v !== null && v !== undefined && v !== ""))].slice(0, 200);
+    if (!ids.length) continue;
+    try {
+      const sql = `SELECT ${ident(lc.pk)} AS k, ${ident(lc.label)} AS v FROM ${ident(ref)} WHERE ${ident(lc.pk)} IN (?)`;
+      const { rows: found } = await query(sql, [ids]);
+      const names = new Map(found.map((f) => [String(f.k), f.v]));
+      if (names.size) maps.push({ key: k, out: prettyKey(k), names });
+    } catch {
+      // keep the ids as they are
+    }
+  }
+  if (!maps.length) return rows;
+  return rows.map((r) => {
+    const o = {};
+    for (const [k, v] of Object.entries(r)) {
+      const m = maps.find((x) => x.key === k);
+      if (!m) {
+        o[k] = v;
+        continue;
+      }
+      const name = m.names.get(String(v));
+      o[name !== undefined && !(m.out in r) ? m.out : k] = name ?? v;
+    }
+    return o;
+  });
 }
 
 /**

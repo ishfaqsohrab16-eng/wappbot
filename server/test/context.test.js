@@ -60,3 +60,29 @@ test("stripThink removes reasoning blocks", () => {
   assert.equal(stripThink("<think>hmm</think>\nSELECT 1"), "SELECT 1");
   assert.equal(stripThink("plain"), "plain");
 });
+
+test("id columns are replaced with names from their lookup tables", async () => {
+  const { resolveIdColumns, refTableFor, labelColumns } = await import("../src/bot/context.js");
+  const s = {
+    tables: new Map([
+      ["students", { columns: [{ name: "id", key: "PRI" }, { name: "std_name" }, { name: "course_id" }, { name: "center_id" }, { name: "std_batch_id" }] }],
+      ["courses", { columns: [{ name: "id", key: "PRI" }, { name: "short_code" }, { name: "course_name" }] }],
+      ["tbl_centres", { columns: [{ name: "center_id", key: "PRI" }, { name: "center_name" }] }],
+      ["batches", { columns: [{ name: "id", key: "PRI" }, { name: "title" }] }],
+    ]),
+  };
+  assert.equal(refTableFor(s, "course_id"), "courses");
+  assert.equal(refTableFor(s, "center_id"), "tbl_centres");
+  assert.equal(refTableFor(s, "std_batch_id"), "batches");
+  assert.deepEqual(labelColumns(s, "courses"), { pk: "id", label: "course_name" });
+  const queries = [];
+  const query = async (sql, params) => {
+    queries.push(sql);
+    if (/courses/.test(sql)) return { rows: [{ k: 3, v: "Web Development" }] };
+    if (/tbl_centres/.test(sql)) return { rows: [{ k: "4", v: "Quetta Center" }] };
+    return { rows: [] };
+  };
+  const rows = await resolveIdColumns(s, [{ std_name: "Ali", course_id: 3, center_id: 4, std_batch_id: 9 }], query, { selfTable: "students" });
+  assert.deepEqual(rows, [{ std_name: "Ali", course: "Web Development", center: "Quetta Center", std_batch_id: 9 }]);
+  assert.ok(queries.every((q) => /IN \(\?\)/.test(q)));
+});

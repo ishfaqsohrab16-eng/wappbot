@@ -3,6 +3,10 @@ import { runQuery, dbEnabled } from "./pool.js";
 import { log } from "../logger.js";
 
 const blockedCol = new RegExp(config.db.blockedColumnsRegex, "i");
+// Framework housekeeping tables the bot never needs (smaller prompt = faster model).
+const ignoredTable = config.db.ignoreTablesRegex ? new RegExp(config.db.ignoreTablesRegex, "i") : null;
+// Columns left out of prompts only (still queryable / shown in "all details").
+const NOISE_COL = /^(updated_at|deleted_at|email_verified_at|remember_token|created_by|updated_by|deleted_by)$/i;
 
 let cache = null; // { tables: Map<name, {columns:[{name,type,key}], rows}>, loadedAt, error }
 let loading = null;
@@ -26,6 +30,7 @@ async function introspect() {
   for (const row of rows) {
     if (allow.size && !allow.has(String(row.t).toLowerCase())) continue;
     if (isBlockedColumn(row.c)) continue;
+    if (ignoredTable?.test(row.t)) continue;
     if (!tables.has(row.t)) tables.set(row.t, { columns: [], rows: Number(row.r) || 0 });
     tables.get(row.t).columns.push({ name: row.c, type: row.dt, key: row.k });
   }
@@ -56,7 +61,9 @@ export async function getSchema({ refresh = false } = {}) {
 
 function colStr(c) {
   const k = c.key === "PRI" ? "*" : "";
-  return `${c.name}${k}:${shortType(c.type)}`;
+  const t = shortType(c.type);
+  // Text columns are the default and carry no type, to keep prompts short.
+  return t === "str" || t === "text" ? `${c.name}${k}` : `${c.name}${k}:${t}`;
 }
 
 function shortType(t) {
@@ -72,7 +79,7 @@ export function describeTables(schema, names) {
   for (const name of names ?? schema.tables.keys()) {
     const t = schema.tables.get(name);
     if (!t) continue;
-    lines.push(`${name}(${t.columns.map(colStr).join(", ")})`);
+    lines.push(`${name}(${t.columns.filter((c) => !NOISE_COL.test(c.name)).map(colStr).join(", ")})`);
   }
   return lines.join("\n");
 }
