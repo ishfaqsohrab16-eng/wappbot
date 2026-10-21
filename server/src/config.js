@@ -49,28 +49,35 @@ export const config = {
     autoSetWebhook: bool("EVOLUTION_AUTO_SET_WEBHOOK", true),
   },
 
-  // LLM: Gemini (google) with local Ollama fallback
+  // LLM: local Ollama by default (native /api/chat). Gemini optional.
   llm: {
-    provider: (str("LLM_PROVIDER") || str("DEFAULT_LLM_PROVIDER") || (str("GOOGLE_API_KEY") ? "google" : "local")).toLowerCase(),
-    fallback: str("LLM_FALLBACK", "local").toLowerCase(),
+    provider: (str("LLM_PROVIDER") || str("DEFAULT_LLM_PROVIDER") || "local").toLowerCase(),
+    fallback: str("LLM_FALLBACK", "none").toLowerCase(),
     googleApiKey: str("GOOGLE_API_KEY"),
-    googleModel: str("GOOGLE_LLM_MODEL") || str("DEFAULT_LLM_MODEL") || "gemini-2.0-flash",
+    googleModel: str("GOOGLE_LLM_MODEL") || "gemini-2.0-flash",
     googleBaseUrl: str("GOOGLE_LLM_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai").replace(/\/$/, ""),
     googleCooldownMs: num("GOOGLE_COOLDOWN_MS", 15 * 60 * 1000),
     baseUrl: str("LLM_BASE_URL", "http://wp_man_llm:11434/v1").replace(/\/$/, ""),
     apiKey: str("LLM_API_KEY", "ollama"),
-    model: str("LLM_MODEL", "gpt-oss:20b"),
+    model: str("LLM_MODEL", "qwen3:8b"),
+    // Ollama context window. Its default (2-4k) silently cuts the schema off.
+    numCtx: num("LLM_NUM_CTX", 8192),
+    // How long Ollama keeps the model in memory (-1 = forever). Avoids slow cold loads.
+    keepAlive: str("LLM_KEEP_ALIVE", "-1"),
+    // Thinking makes qwen3/deepseek-r1 much slower; off by default.
+    think: bool("LLM_THINK", false),
     maxTokens: num("LLM_MAX_TOKENS", 800),
     botMaxTokens: num("LLM_BOT_MAX_TOKENS", 500),
-    temperature: num("LLM_TEMPERATURE", 0.3),
-    reasoningEffort: str("LLM_REASONING_EFFORT", "low"),
+    temperature: num("LLM_TEMPERATURE", 0.2),
+    reasoningEffort: str("LLM_REASONING_EFFORT", "none"),
     timeoutMs: num("LLM_TIMEOUT_MS", 120000),
-    concurrency: num("LLM_CONCURRENCY", str("GOOGLE_API_KEY") ? 3 : 1),
+    concurrency: num("LLM_CONCURRENCY", 2),
     maxQueue: num("LLM_MAX_QUEUE", 10),
     rateLimitPerMin: num("LLM_RATE_LIMIT_PER_MIN", 10),
-    historyMessages: num("LLM_HISTORY_MESSAGES", 8),
+    historyMessages: num("LLM_HISTORY_MESSAGES", 30),
+    historyDays: num("LLM_HISTORY_DAYS", 30),
     maxUserChars: num("LLM_MAX_USER_CHARS", 2000),
-    maxAgentSteps: num("LLM_MAX_AGENT_STEPS", 5),
+    maxAgentSteps: num("LLM_MAX_AGENT_STEPS", 4),
   },
 
   // Database (read-only)
@@ -106,6 +113,8 @@ export const config = {
     ackAfterMs: num("BOT_ACK_AFTER_MS", 8000),
     welcomeOnAdd: bool("BOT_WELCOME_ON_ADD", true),
     echoTranscript: bool("BOT_ECHO_TRANSCRIPT", true),
+    // Send short progress notes (what the bot understood, retries). Never SQL/schema.
+    showThinking: bool("BOT_SHOW_THINKING", true),
     contextNote: str("BOT_CONTEXT_NOTE", "You answer questions about an LMS (learning management system) database."),
   },
 };
@@ -120,6 +129,8 @@ export function configWarnings() {
     w.push("EVOLUTION_BASE_URL / EVOLUTION_API_KEY / EVOLUTION_INSTANCE not fully set: WhatsApp disabled.");
   if (!config.evolution.webhookSecret) w.push("WEBHOOK_SECRET is empty: the webhook is not protected.");
   if (!config.db.name || !config.db.user) w.push("DB_NAME / DB_USER not set: database features disabled.");
+  if (config.llm.provider === "local" && config.llm.numCtx < 6144)
+    w.push(`LLM_NUM_CTX=${config.llm.numCtx} is small; the schema may not fit. 8192 is recommended.`);
   if ((config.llm.provider === "google" || config.llm.provider === "auto") && !config.llm.googleApiKey)
     w.push("LLM_PROVIDER is google but GOOGLE_API_KEY is empty; falling back to local LLM.");
   return w;

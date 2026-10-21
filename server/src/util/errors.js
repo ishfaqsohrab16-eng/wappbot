@@ -35,6 +35,8 @@ export function toAppError(err) {
   const code = err?.code || err?.cause?.code || "";
   if (code === "sql_failed")
     return new AppError("sql_failed", 422, "I couldn't fetch that information. Please rephrase your question or be more specific.", err);
+  if (code === "model_missing")
+    return new AppError("ai_unavailable", 502, "The AI model is not installed on the server yet. Please tell the administrator.", err);
   if (name === "AbortError" || name === "APIUserAbortError") return new AbortedError();
   if (name === "APIConnectionTimeoutError" || code === "ETIMEDOUT" || name === "TimeoutError")
     return new AppError("timeout", 504, "The AI took too long to answer. Please try a shorter question.", err);

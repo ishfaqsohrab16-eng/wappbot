@@ -77,9 +77,21 @@ export function describeTables(schema, names) {
   return lines.join("\n");
 }
 
-/** Table names only, for big schemas (two-step mode). */
-export function listTableNames(schema) {
-  return [...schema.tables.keys()].join(", ");
+/**
+ * Table overview for choosing tables: each table with its first columns when it
+ * fits the budget, otherwise names only.
+ */
+export function listTableNames(schema, maxChars = 5000) {
+  const names = [...schema.tables.keys()];
+  for (const perTable of [8, 4]) {
+    const lines = names.map((n) => {
+      const cols = schema.tables.get(n).columns.map((c) => c.name);
+      return `${n}(${cols.slice(0, perTable).join(", ")}${cols.length > perTable ? ", …" : ""})`;
+    });
+    const text = lines.join("\n");
+    if (text.length <= maxChars) return text;
+  }
+  return names.join(", ");
 }
 
 /** "full" if the whole schema fits the prompt budget, otherwise "two-step". */

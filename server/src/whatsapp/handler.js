@@ -156,7 +156,10 @@ async function processMessage({ data, phone, replyTo, content, name }) {
 
   sendTyping(replyTo, 15000);
   const typingTimer = setInterval(() => sendTyping(replyTo, 15000), 12000);
+  let progressed = false;
+  let notes = Promise.resolve(); // progress notes go out in order, before the answer
   const ackTimer = setTimeout(() => {
+    if (progressed) return;
     sendText(replyTo, "⏳ Working on it, this can take up to a minute…").catch(() => {});
   }, config.bot.ackAfterMs);
 
@@ -184,7 +187,14 @@ async function processMessage({ data, phone, replyTo, content, name }) {
 
     if (text.length > config.llm.maxUserChars) text = text.slice(0, config.llm.maxUserChars);
 
-    const result = await runAssistant({ text, historyKey: phone, language });
+    const onProgress = config.bot.showThinking
+      ? (note) => {
+          progressed = true;
+          notes = notes.then(() => sendText(replyTo, `_${note}_`)).catch(() => {});
+        }
+      : undefined;
+    const result = await runAssistant({ text, historyKey: phone, language, onProgress });
+    await notes;
     const prefix = content.kind === "audio" && config.bot.echoTranscript ? `🎤 _${text}_\n\n` : "";
     await sendText(replyTo, prefix + result.reply);
     recordActivity({

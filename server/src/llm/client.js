@@ -4,22 +4,23 @@ import { createQueue } from "./queue.js";
 import { isQuotaOrRateLimit } from "./failover.js";
 import { log } from "../logger.js";
 
-function makeClient(baseUrl, apiKey) {
-  return new OpenAI({
-    baseURL: baseUrl,
-    apiKey: apiKey || "ollama",
-    timeout: config.llm.timeoutMs,
-    maxRetries: 0,
-  });
-}
+// Local models talk to Ollama's native /api/chat: it is the only API that lets us
+// turn thinking off, raise num_ctx and keep the model loaded. Gemini uses the
+// OpenAI-compatible endpoint.
+const ollamaRoot = config.llm.baseUrl.replace(/\/v1$/, "");
 
-const localClient = makeClient(config.llm.baseUrl, config.llm.apiKey);
 const googleClient = config.llm.googleApiKey
-  ? makeClient(config.llm.googleBaseUrl, config.llm.googleApiKey)
+  ? new OpenAI({
+      baseURL: config.llm.googleBaseUrl,
+      apiKey: config.llm.googleApiKey,
+      timeout: config.llm.timeoutMs,
+      maxRetries: 0,
+    })
   : null;
 
 let googleBlockedUntil = 0;
 let lastUsedProvider = null;
+let thinkSupported = true; // flips off if Ollama rejects the "think" field
 
 export const llmQueue = createQueue({
   name: "llm",
@@ -32,7 +33,7 @@ export function googleCooldownMs() {
 }
 
 function canUseGoogle() {
-  return Boolean(googleClient && config.llm.googleApiKey && Date.now() >= googleBlockedUntil);
+  return Boolean(googleClient && Date.now() >= googleBlockedUntil);
 }
 
 function canUseLocal() {
@@ -42,33 +43,20 @@ function canUseLocal() {
 /** Which backend will handle the next call. */
 export function activeProvider() {
   const pref = config.llm.provider;
-  if (pref === "local") return "local";
-  if ((pref === "google" || pref === "auto") && canUseGoogle()) return "google";
-  if (config.llm.fallback === "local" && canUseLocal()) return "local";
+  if (pref !== "google" && pref !== "auto") return "local";
   if (canUseGoogle()) return "google";
-  return "local";
+  return config.llm.fallback === "local" && canUseLocal() ? "local" : "google";
 }
 
 export function modelFor(provider = activeProvider()) {
   return provider === "google" ? config.llm.googleModel : config.llm.model;
 }
 
-function clientFor(provider) {
-  return provider === "google" ? googleClient : localClient;
-}
-
-function buildParams(provider, messages, opts, stream) {
-  const params = {
-    model: modelFor(provider),
-    messages,
-    stream,
-    max_tokens: opts.maxTokens ?? config.llm.maxTokens,
-    temperature: opts.temperature ?? config.llm.temperature,
-  };
-  if (provider !== "google") {
-    params.reasoning_effort = opts.reasoningEffort ?? config.llm.reasoningEffort;
-  }
-  return params;
+/** Remove <think>…</think> blocks that older Ollama builds leave in the content. */
+export function stripThink(text) {
+  return String(text || "")
+    .replace(/<think>[\s\S]*?(<\/think>|$)/gi, "")
+    .trim();
 }
 
 function withTimeout(signal) {
@@ -96,86 +84,169 @@ function rethrow(err, t) {
     e.name = "TimeoutError";
     throw e;
   }
+  if (err?.name === "TypeError" && /fetch failed/i.test(err.message)) {
+    const e = new Error("AI service unreachable");
+    e.code = err.cause?.code || "ECONNREFUSED";
+    throw e;
+  }
   throw err;
 }
 
-function blockGoogle(err) {
-  googleBlockedUntil = Date.now() + config.llm.googleCooldownMs;
-  log.warn(
-    `Gemini limit/quota (${err.status || err.message || "error"}); using local ${config.llm.model} for ${Math.round(config.llm.googleCooldownMs / 60000)} min`
-  );
+// ---- Ollama native ------------------------------------------------------
+
+function keepAlive() {
+  const k = config.llm.keepAlive;
+  return /^-?\d+$/.test(k) ? Number(k) : k;
 }
 
-async function withFailover(run) {
-  const primary = activeProvider();
-  lastUsedProvider = primary;
-  try {
-    return await run(primary);
-  } catch (err) {
-    if (primary === "google" && isQuotaOrRateLimit(err) && canUseLocal()) {
-      blockGoogle(err);
-      lastUsedProvider = "local";
-      return run("local");
-    }
-    throw err;
-  }
-}
-
-export async function chat(messages, opts = {}) {
-  const exec = async () => {
-    const started = Date.now();
-    const text = await withFailover(async (provider) => {
-      const t = withTimeout(opts.signal);
-      try {
-        const res = await clientFor(provider).chat.completions.create(buildParams(provider, messages, opts, false), {
-          signal: t.signal,
-        });
-        return res.choices?.[0]?.message?.content ?? "";
-      } catch (err) {
-        rethrow(err, t);
-      } finally {
-        t.done();
-      }
-    });
-    log.debug(`llm chat [${lastUsedProvider}/${modelFor(lastUsedProvider)}] ${Date.now() - started}ms`);
-    return text.trim();
+function ollamaBody(messages, opts, stream) {
+  const body = {
+    model: config.llm.model,
+    messages,
+    stream,
+    keep_alive: keepAlive(),
+    options: {
+      temperature: opts.temperature ?? config.llm.temperature,
+      num_predict: opts.maxTokens ?? config.llm.maxTokens,
+      num_ctx: config.llm.numCtx,
+    },
   };
-  return opts.queued === false ? exec() : llmQueue.run(exec, opts.signal);
+  if (thinkSupported) body.think = config.llm.think;
+  if (opts.json) body.format = "json";
+  return body;
 }
 
-export async function* streamChat(messages, opts = {}) {
-  const release = opts.queued === false ? null : await llmQueue.acquire(opts.signal);
-  try {
-    const started = Date.now();
-    yield* streamWithFailover(messages, opts);
-    log.debug(`llm stream [${lastUsedProvider}/${modelFor(lastUsedProvider)}] ${Date.now() - started}ms`);
-  } finally {
-    release?.();
-  }
-}
-
-async function* streamWithFailover(messages, opts) {
-  const primary = activeProvider();
-  lastUsedProvider = primary;
-  try {
-    yield* streamOnce(primary, messages, opts);
-  } catch (err) {
-    if (primary === "google" && isQuotaOrRateLimit(err) && canUseLocal()) {
-      blockGoogle(err);
-      lastUsedProvider = "local";
-      yield* streamOnce("local", messages, opts);
-      return;
+async function ollamaFetch(messages, opts, stream, signal) {
+  const send = () =>
+    fetch(`${ollamaRoot}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(ollamaBody(messages, opts, stream)),
+      signal,
+    });
+  let res = await send();
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    if (thinkSupported && res.status === 400 && /think/i.test(text)) {
+      thinkSupported = false;
+      log.info(`Model ${config.llm.model} has no thinking switch; continuing without it`);
+      res = await send();
+      if (res.ok) return res;
     }
-    throw err;
+    const e = new Error(`Ollama HTTP ${res.status}: ${text.slice(0, 200)}`);
+    e.status = res.status;
+    if (res.status === 404) e.code = "model_missing";
+    throw e;
   }
+  return res;
 }
 
-async function* streamOnce(provider, messages, opts) {
+async function ollamaChat(messages, opts) {
   const t = withTimeout(opts.signal);
   try {
-    const stream = await clientFor(provider).chat.completions.create(buildParams(provider, messages, opts, true), {
-      signal: t.signal,
-    });
+    const res = await ollamaFetch(messages, opts, false, t.signal);
+    const body = await res.json();
+    return stripThink(body.message?.content ?? "");
+  } catch (err) {
+    rethrow(err, t);
+  } finally {
+    t.done();
+  }
+}
+
+async function* ollamaStream(messages, opts) {
+  const t = withTimeout(opts.signal);
+  try {
+    const res = await ollamaFetch(messages, opts, true, t.signal);
+    const decoder = new TextDecoder();
+    let buf = "";
+    // Hold tokens back while inside a <think> block.
+    let pending = "";
+    let inThink = false;
+    let decided = false;
+    const emit = function* (piece) {
+      pending += piece;
+      for (;;) {
+        if (!decided) {
+          const lead = pending.trimStart();
+          if (lead.length < 7 && "<think>".startsWith(lead)) return;
+          decided = true;
+          if (lead.startsWith("<think>")) {
+            inThink = true;
+            pending = lead.slice(7);
+          }
+        }
+        if (inThink) {
+          const end = pending.indexOf("</think>");
+          if (end < 0) {
+            pending = pending.slice(-8);
+            return;
+          }
+          pending = pending.slice(end + 8).replace(/^\s+/, "");
+          inThink = false;
+          continue;
+        }
+        if (pending) yield pending;
+        pending = "";
+        return;
+      }
+    };
+    for await (const chunk of res.body) {
+      buf += decoder.decode(chunk, { stream: true });
+      let nl;
+      while ((nl = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, nl).trim();
+        buf = buf.slice(nl + 1);
+        if (!line) continue;
+        let msg;
+        try {
+          msg = JSON.parse(line);
+        } catch {
+          continue;
+        }
+        if (msg.error) throw new Error(`Ollama: ${msg.error}`);
+        const tok = msg.message?.content;
+        if (tok) yield* emit(tok);
+      }
+    }
+    if (!decided && pending) yield pending;
+  } catch (err) {
+    rethrow(err, t);
+  } finally {
+    t.done();
+  }
+}
+
+// ---- Gemini (OpenAI-compatible) -----------------------------------------
+
+function googleParams(messages, opts, stream) {
+  const p = {
+    model: config.llm.googleModel,
+    messages,
+    stream,
+    max_tokens: opts.maxTokens ?? config.llm.maxTokens,
+    temperature: opts.temperature ?? config.llm.temperature,
+  };
+  if (opts.json) p.response_format = { type: "json_object" };
+  return p;
+}
+
+async function googleChat(messages, opts) {
+  const t = withTimeout(opts.signal);
+  try {
+    const res = await googleClient.chat.completions.create(googleParams(messages, opts, false), { signal: t.signal });
+    return stripThink(res.choices?.[0]?.message?.content ?? "");
+  } catch (err) {
+    rethrow(err, t);
+  } finally {
+    t.done();
+  }
+}
+
+async function* googleStream(messages, opts) {
+  const t = withTimeout(opts.signal);
+  try {
+    const stream = await googleClient.chat.completions.create(googleParams(messages, opts, true), { signal: t.signal });
     for await (const chunk of stream) {
       const tok = chunk.choices?.[0]?.delta?.content;
       if (tok) yield tok;
@@ -187,15 +258,92 @@ async function* streamOnce(provider, messages, opts) {
   }
 }
 
+function blockGoogle(err) {
+  googleBlockedUntil = Date.now() + config.llm.googleCooldownMs;
+  log.warn(
+    `Gemini limit/quota (${err.status || err.message || "error"}); using local ${config.llm.model} for ${Math.round(config.llm.googleCooldownMs / 60000)} min`
+  );
+}
+
+const canFailOver = (provider, err) =>
+  provider === "google" && isQuotaOrRateLimit(err) && config.llm.fallback === "local" && canUseLocal();
+
+// ---- public API ---------------------------------------------------------
+
+/**
+ * One non-streamed completion.
+ * opts: { signal, queued, maxTokens, temperature, json }
+ */
+export async function chat(messages, opts = {}) {
+  const exec = async () => {
+    const started = Date.now();
+    let provider = activeProvider();
+    lastUsedProvider = provider;
+    let text;
+    try {
+      text = provider === "google" ? await googleChat(messages, opts) : await ollamaChat(messages, opts);
+    } catch (err) {
+      if (!canFailOver(provider, err)) throw err;
+      blockGoogle(err);
+      provider = lastUsedProvider = "local";
+      text = await ollamaChat(messages, opts);
+    }
+    log.debug(`llm chat [${provider}/${modelFor(provider)}] ${Date.now() - started}ms`);
+    return text;
+  };
+  return opts.queued === false ? exec() : llmQueue.run(exec, opts.signal);
+}
+
+/** Streamed completion, yields text tokens. */
+export async function* streamChat(messages, opts = {}) {
+  const release = opts.queued === false ? null : await llmQueue.acquire(opts.signal);
+  try {
+    const started = Date.now();
+    let provider = activeProvider();
+    lastUsedProvider = provider;
+    if (provider === "local") {
+      yield* ollamaStream(messages, opts);
+    } else {
+      let gotAny = false;
+      try {
+        for await (const tok of googleStream(messages, opts)) {
+          gotAny = true;
+          yield tok;
+        }
+      } catch (err) {
+        if (gotAny || !canFailOver(provider, err)) throw err;
+        blockGoogle(err);
+        provider = lastUsedProvider = "local";
+        yield* ollamaStream(messages, opts);
+      }
+    }
+    log.debug(`llm stream [${provider}/${modelFor(provider)}] ${Date.now() - started}ms`);
+  } finally {
+    release?.();
+  }
+}
+
+/** Load the model into memory so the first real question is not slow. */
+export async function warmup() {
+  if (activeProvider() !== "local") return;
+  try {
+    const started = Date.now();
+    await ollamaChat([{ role: "user", content: "hi" }], { maxTokens: 1 });
+    log.info(`LLM ${config.llm.model} warmed up in ${Date.now() - started}ms (num_ctx ${config.llm.numCtx})`);
+  } catch (err) {
+    log.warn(`LLM warmup failed: ${err.message}`);
+  }
+}
+
 async function pingLocal() {
-  const root = config.llm.baseUrl.replace(/\/v1$/, "");
   const started = Date.now();
   try {
-    const res = await fetch(`${root}/api/tags`, { signal: AbortSignal.timeout(5000) });
+    const res = await fetch(`${ollamaRoot}/api/tags`, { signal: AbortSignal.timeout(5000) });
     if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
     const body = await res.json();
     const models = (body.models || []).map((m) => m.name);
-    const present = models.includes(config.llm.model);
+    const want = config.llm.model.includes(":") ? config.llm.model : `${config.llm.model}:latest`;
+    const present = models.includes(config.llm.model) || models.includes(want);
     return {
       ok: present,
       model: config.llm.model,
@@ -204,16 +352,14 @@ async function pingLocal() {
       latencyMs: Date.now() - started,
       ...(present ? {} : { error: "Model not installed" }),
     };
-  } catch (err) {
+  } catch {
     return { ok: false, model: config.llm.model, error: "AI service unreachable" };
   }
 }
 
 async function pingGoogle() {
   if (!config.llm.googleApiKey) return { ok: false, error: "GOOGLE_API_KEY not set" };
-  if (googleCooldownMs()) {
-    return { ok: false, error: "quota cooldown", cooldownMs: googleCooldownMs() };
-  }
+  if (googleCooldownMs()) return { ok: false, error: "quota cooldown", cooldownMs: googleCooldownMs() };
   const started = Date.now();
   try {
     const url = new URL("https://generativelanguage.googleapis.com/v1beta/models");
@@ -222,15 +368,16 @@ async function pingGoogle() {
     if (res.status === 429) return { ok: false, error: "rate limited" };
     if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
     return { ok: true, model: config.llm.googleModel, latencyMs: Date.now() - started };
-  } catch (err) {
+  } catch {
     return { ok: false, model: config.llm.googleModel, error: "Gemini unreachable" };
   }
 }
 
 export async function llmHealth() {
   const provider = activeProvider();
+  const useGoogle = config.llm.provider === "google" || config.llm.provider === "auto";
   const [google, local] = await Promise.all([
-    config.llm.googleApiKey ? pingGoogle() : Promise.resolve({ ok: false, error: "not configured" }),
+    useGoogle && config.llm.googleApiKey ? pingGoogle() : Promise.resolve({ ok: false, error: "not used" }),
     pingLocal(),
   ]);
   const current = provider === "google" ? google : local;

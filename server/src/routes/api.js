@@ -60,7 +60,8 @@ apiRouter.get("/status", requireAuth, async (_req, res) => {
       googleModel: config.llm.googleModel,
       localModel: config.llm.model,
       fallback: config.llm.fallback,
-      reasoningEffort: config.llm.reasoningEffort,
+      reasoningEffort: config.llm.think ? "on" : "off",
+      numCtx: config.llm.numCtx,
       maxTokens: config.llm.botMaxTokens,
       rateLimitPerMin: config.llm.rateLimitPerMin,
       sttProvider: config.stt.provider,
@@ -117,6 +118,7 @@ apiRouter.post("/chat", requireAuth, async (req, res) => {
       release,
       onToken: (token) => send("token", { token }),
       onStatus: (status) => send("status", { status }),
+      onProgress: (note) => send("progress", { note }),
     });
     send("done", { action: result.action, sql: result.sql, rowCount: result.rowCount, ms: result.ms });
   } catch (err) {

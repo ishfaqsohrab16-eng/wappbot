@@ -35,25 +35,53 @@ services:
       DB_QUERY_TIMEOUT_MS: ${DB_QUERY_TIMEOUT_MS:-15000}
       DB_MAX_ROWS: ${DB_MAX_ROWS:-50}
       
-      # LLM Variables
-      LLM_PROVIDER: ${LLM_PROVIDER:-google}
-      DEFAULT_LLM_PROVIDER: ${DEFAULT_LLM_PROVIDER:-google}
-      LLM_FALLBACK: ${LLM_FALLBACK:-local}
-      GOOGLE_API_KEY: ${GOOGLE_API_KEY}
-      GOOGLE_LLM_MODEL: ${GOOGLE_LLM_MODEL}
-      DEFAULT_LLM_MODEL: ${DEFAULT_LLM_MODEL}
+      # LLM Variables (local Ollama only by default)
+      LLM_PROVIDER: ${LLM_PROVIDER:-local}
+      DEFAULT_LLM_PROVIDER: ${DEFAULT_LLM_PROVIDER:-local}
+      LLM_FALLBACK: ${LLM_FALLBACK:-none}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      GOOGLE_LLM_MODEL: ${GOOGLE_LLM_MODEL:-}
       GOOGLE_LLM_BASE_URL: ${GOOGLE_LLM_BASE_URL:-https://generativelanguage.googleapis.com/v1beta/openai}
       GOOGLE_COOLDOWN_MS: ${GOOGLE_COOLDOWN_MS:-900000}
-      LLM_BASE_URL: ${LLM_BASE_URL}
+      LLM_BASE_URL: ${LLM_BASE_URL:-http://wp_man_llm:11434/v1}
       LLM_API_KEY: ${LLM_API_KEY:-ollama}
-      LLM_MODEL: ${LLM_MODEL}
-      LLM_MAX_AGENT_STEPS: ${LLM_MAX_AGENT_STEPS:-5}
-      LLM_CONCURRENCY: ${LLM_CONCURRENCY:-3}
+      LLM_MODEL: ${LLM_MODEL:-qwen3:8b}
+      LLM_NUM_CTX: ${LLM_NUM_CTX:-8192}
+      LLM_KEEP_ALIVE: ${LLM_KEEP_ALIVE:--1}
+      LLM_THINK: ${LLM_THINK:-false}
+      LLM_MAX_TOKENS: ${LLM_MAX_TOKENS:-800}
+      LLM_BOT_MAX_TOKENS: ${LLM_BOT_MAX_TOKENS:-400}
+      LLM_TEMPERATURE: ${LLM_TEMPERATURE:-0.2}
       LLM_TIMEOUT_MS: ${LLM_TIMEOUT_MS:-120000}
-      
+      LLM_CONCURRENCY: ${LLM_CONCURRENCY:-2}
+      LLM_MAX_QUEUE: ${LLM_MAX_QUEUE:-10}
+      LLM_RATE_LIMIT_PER_MIN: ${LLM_RATE_LIMIT_PER_MIN:-10}
+      LLM_HISTORY_MESSAGES: ${LLM_HISTORY_MESSAGES:-30}
+      LLM_HISTORY_DAYS: ${LLM_HISTORY_DAYS:-30}
+      LLM_MAX_USER_CHARS: ${LLM_MAX_USER_CHARS:-2000}
+      LLM_MAX_AGENT_STEPS: ${LLM_MAX_AGENT_STEPS:-4}
+
+      # Database tuning
+      DB_ALLOWED_TABLES: ${DB_ALLOWED_TABLES:-}
+      DB_BLOCKED_COLUMNS_REGEX: ${DB_BLOCKED_COLUMNS_REGEX:-pass|pwd|token|secret|salt|hash|otp|api_?key|remember}
+      DB_SCHEMA_NOTES: ${DB_SCHEMA_NOTES:-}
+
+      # Speech-to-text
+      STT_TIMEOUT_MS: ${STT_TIMEOUT_MS:-120000}
+      STT_MAX_AUDIO_SECONDS: ${STT_MAX_AUDIO_SECONDS:-180}
+
+      # Bot behaviour
+      BOT_NAME: ${BOT_NAME:-DigiBizz Assistant}
+      BOT_CONTEXT_NOTE: ${BOT_CONTEXT_NOTE:-You answer questions about an LMS (learning management system) database.}
+      BOT_ACK_AFTER_MS: ${BOT_ACK_AFTER_MS:-10000}
+      BOT_WELCOME_ON_ADD: ${BOT_WELCOME_ON_ADD:-true}
+      BOT_ECHO_TRANSCRIPT: ${BOT_ECHO_TRANSCRIPT:-true}
+      BOT_SHOW_THINKING: ${BOT_SHOW_THINKING:-true}
+      EVOLUTION_AUTO_SET_WEBHOOK: ${EVOLUTION_AUTO_SET_WEBHOOK:-true}
+
       # Whisper Variables
       WHISPER_MODEL: ${WHISPER_MODEL:-small}
-      
+
     volumes:
       - wappbot-data:/app/data
     expose:

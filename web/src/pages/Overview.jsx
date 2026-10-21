@@ -85,7 +85,7 @@ export default function Overview() {
             <dt>Provider</dt><dd>{cfg.provider || "local"}</dd>
             <dt>Model</dt><dd>{cfg.model}</dd>
             <dt>Fallback</dt><dd>{cfg.fallback === "local" ? cfg.localModel : cfg.fallback || "—"}</dd>
-            <dt>Reasoning</dt><dd>{cfg.reasoningEffort}</dd>
+            <dt>Thinking</dt><dd>{cfg.reasoningEffort}{cfg.numCtx ? ` · ctx ${cfg.numCtx}` : ""}</dd>
             <dt>Max reply tokens</dt><dd>{cfg.maxTokens}</dd>
             <dt>Rate limit</dt><dd>{cfg.rateLimitPerMin} / min per user</dd>
             <dt>Admins</dt><dd>{cfg.adminNumbers.map(phone).join(", ") || "—"}</dd>
