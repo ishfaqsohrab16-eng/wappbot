@@ -161,7 +161,7 @@ async function processMessage({ data, phone, replyTo, content, name }) {
   const ackTimer = setTimeout(() => {
     if (progressed) return;
     sendText(replyTo, "⏳ Working on it, this can take up to a minute…").catch(() => {});
-  }, config.bot.ackAfterMs);
+  }, config.bot.showThinking ? Math.max(config.bot.ackAfterMs, 20000) : config.bot.ackAfterMs);
 
   try {
     let language;
@@ -190,7 +190,7 @@ async function processMessage({ data, phone, replyTo, content, name }) {
     const onProgress = config.bot.showThinking
       ? (note) => {
           progressed = true;
-          notes = notes.then(() => sendText(replyTo, `_${note}_`)).catch(() => {});
+          notes = notes.then(() => sendText(replyTo, note)).catch(() => {});
         }
       : undefined;
     const result = await runAssistant({ text, historyKey: phone, language, onProgress });

@@ -11,6 +11,7 @@ import { closePool, dbEnabled } from "./db/pool.js";
 import { flushUsers } from "./store/users.js";
 import { flushHistory } from "./store/history.js";
 import { warmup } from "./llm/client.js";
+import { primeCache } from "./bot/assistant.js";
 import { ensureInstance, evolutionEnabled } from "./whatsapp/evolution.js";
 
 const app = express();
@@ -39,8 +40,12 @@ app.use((err, _req, res, _next) => {
 const server = app.listen(config.port, () => {
   log.info(`wappbot listening on :${config.port}`);
   for (const w of configWarnings()) log.warn(w);
-  warmup();
-  if (dbEnabled()) getSchema().then((s) => getCatalog(s)).catch((err) => log.warn("Schema/catalog warmup failed:", err.message));
+  if (dbEnabled())
+    getSchema()
+      .then((s) => getCatalog(s))
+      .then(() => primeCache())
+      .catch((err) => log.warn("Schema/catalog warmup failed:", err.message));
+  else warmup();
   if (config.evolution.autoSetWebhook && evolutionEnabled()) setupWhatsApp();
 });
 

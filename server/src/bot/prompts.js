@@ -1,112 +1,124 @@
 import { config } from "../config.js";
 
+// Every LLM call uses the SAME system prompt (instructions + schema). Ollama keeps
+// it in its prompt cache, so each call only has to read the short user message.
+// That is what makes a CPU-only server fast. Task-specific instructions go in the
+// user message.
+
 const LANGUAGE_RULE =
-  "Users write in English, Urdu (اردو), Roman Urdu, Pashto, Balochi, Sindhi or Punjabi, often with spelling mistakes. " +
-  "Reply in the same language AND script as the user's latest message (Roman Urdu → Roman Urdu, English → English).";
+  "Users write in English, Urdu (اردو), Roman Urdu, Pashto, Balochi, Sindhi or Punjabi, often with spelling mistakes and voice-typing errors. " +
+  "Always reply in the same language AND script as the user's latest message (Roman Urdu → Roman Urdu, English → English).";
 
 const WHATSAPP_STYLE =
-  "Format for WhatsApp: short lines, *bold* for key values, '•' bullets for lists, no markdown tables, no headings, no code blocks. " +
-  "Keep it under 120 words unless the user asked for a list or full details.";
+  "WhatsApp format: short lines, *bold* for key values, '•' bullets for lists, no markdown tables, no headings, no code blocks. " +
+  "Under 120 words unless the user asked for a list or full details.";
 
-function header() {
-  return `You are ${config.bot.name}, a smart and friendly WhatsApp data assistant. ${config.bot.contextNote}`;
-}
+const SQL_RULES = () =>
+  [
+    "SQL rules:",
+    "- One MySQL SELECT (or WITH … SELECT). Only tables/columns from the schema. No comments, no semicolon.",
+    `- At most ${config.db.maxRows} rows (add LIMIT). For "how many" use COUNT(*) or COUNT(DISTINCT …) with a clear alias.`,
+    "- Forgiving text matching: LIKE '%word%' on each important word joined with AND, never one long exact string.",
+    "- 'batch 10' may be stored as 'Batch 10', 'Batch-10', 'B10' or 10 in a number column; avoid matching 100/110.",
+    "- Full details of a record: select all its columns and JOIN lookup tables for names instead of ids.",
+    "- 'Current/running/active': use a status column if one exists, else start date <= CURDATE() AND (end date >= CURDATE() OR end date IS NULL). 'Latest': ORDER BY date or id DESC LIMIT 1.",
+    "- Use CURDATE()/NOW() for relative dates.",
+  ].join("\n");
 
-function notes() {
-  return config.db.schemaNotes ? `Notes about the data: ${config.db.schemaNotes}` : "";
-}
-
-/**
- * Step 1 (JSON): understand the message in the light of the conversation.
- * Decides chat / clarify / data, rewrites follow-ups into a standalone question
- * and picks the tables.
- */
-export function understandPrompt({ tableList, ranked, lastLookup, transcript }) {
+/** The one static system prompt. */
+export function systemPrompt({ schemaText, full }) {
   return [
-    header(),
-    `Database tables:\n${tableList}`,
-    notes(),
-    ranked ? `Official names in the database that look similar to words in the message:\n${ranked}` : "",
-    lastLookup ? `Your last database lookup in this chat:\n${lastLookup}` : "",
-    transcript ? `Conversation so far (oldest first):\n${transcript}` : "",
+    `You are ${config.bot.name}, a smart and friendly WhatsApp data assistant. ${config.bot.contextNote}`,
+    `You have read-only access to a MySQL database. ${full ? "Complete schema" : "Tables with their first columns (more columns are given when needed)"}, as table(column:type), * = primary key:\n${schemaText}`,
+    config.db.schemaNotes ? `Notes about the data: ${config.db.schemaNotes}` : "",
+    SQL_RULES(),
+    LANGUAGE_RULE,
+    WHATSAPP_STYLE,
+    "Each message starts with TASK: and tells you exactly what to output. Follow it exactly.",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+const section = (title, body) => (body ? `${title}:\n${body}` : "");
+
+/** TASK plan: understand + write SQL in one go (JSON). */
+export function planTask({ today, transcript, lastLookup, tableDetails, ranked, idHints, text }) {
+  return [
+    "TASK: plan",
+    `Today is ${today}.`,
+    section("Conversation so far", transcript),
+    section("Your last database lookup", lastLookup),
+    section("Columns of the tables most likely needed", tableDetails),
+    section("Official names in the database similar to the message (use these spellings)", ranked),
+    section("Identifier hints", idHints?.map((h) => `- ${h}`).join("\n")),
+    `New message: ${text}`,
     [
-      "Classify the user's NEW message and output JSON only, no other text:",
-      '{"type":"data|chat|clarify","question":"...","tables":["..."],"reply":"..."}',
-      "",
-      '- "data": the user wants facts from the database (counts, lists, details, status, dates, who/which). This is the usual case.',
-      '  "question": rewrite it as ONE complete, standalone question in clear English. Fix spelling mistakes and voice-typing errors, expand short forms (QTA=Quetta, std=student),',
-      '  use official names from the list above when they fit, and resolve references such as "this cnic", "he", "his phone", "that batch", "same for batch 11", "and Karachi?" using the conversation and the last lookup.',
-      "  Copy exact values (CNIC, phone, names, numbers) the user gave, even if they were in an earlier message.",
-      '  "tables": up to 8 table names from the list that are needed, including lookup tables needed for joins.',
-      '- "chat": greetings, thanks, small talk, questions about you or what you can do. "reply": a short friendly reply.',
-      '- "clarify": ONLY if you truly cannot guess what data they want, even with the conversation. "reply": one short question that asks for the missing detail and suggests 2-3 concrete options.',
-      "Prefer a reasonable guess (type data) over clarify. If the message only adds a detail to the previous question, combine both into the new question.",
-      LANGUAGE_RULE,
+      "Output JSON only:",
+      '{"type":"data|chat|clarify","question":"...","sql":"...","template":"...","reply":"..."}',
+      '- "data" (the usual case): the user wants facts from the database. "question" = ONE standalone question in clear English: fix spelling, expand short forms (QTA=Quetta, std=student), resolve "this/he/his/that batch/same for…" from the conversation, copy exact values (CNIC, phone, names, numbers) even from earlier messages. "sql" = the query. "template" = if the answer is ONE value (a count, a date, a name), a short reply in the user\'s language with {value} where that value goes, e.g. "There are {value} centers."; otherwise "".',
+      '- "chat": greeting, thanks, small talk, questions about you. "reply" = short friendly reply.',
+      '- "clarify": ONLY if you truly cannot guess what they want, even with the conversation. "reply" = one short question with 2-3 concrete options.',
+      "Prefer a reasonable guess (data) over clarify.",
     ].join("\n"),
   ]
     .filter(Boolean)
     .join("\n\n");
 }
 
-/** Step 2: write one SELECT. */
-export function sqlPrompt({ schemaText, ranked, idHints }) {
+/** TASK fix: repair a failed / empty query (JSON). */
+export function fixTask({ question, sql, problem, tableDetails, closeNames }) {
   return [
-    "You are an expert MySQL analyst. Write ONE read-only query that answers the question.",
-    `Schema, one table per line as table(column:type), * marks the primary key:\n${schemaText}`,
-    notes(),
-    ranked ? `Official values in the database similar to words in the question (use these exact spellings):\n${ranked}` : "",
-    idHints?.length ? `Identifier hints:\n${idHints.map((h) => `- ${h}`).join("\n")}` : "",
+    "TASK: fix",
+    `Question: ${question}`,
+    `Previous SQL: ${sql}`,
+    `Problem: ${problem}`,
+    section("Similar values that exist in the database", closeNames),
+    section("Columns of the relevant tables", tableDetails),
+    'Write a better query. If the result was empty, broaden it: official values above, LIKE on single key words, fewer filters, or another column/table. Output JSON only: {"sql":"..."}',
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+/** TASK answer: turn rows into the reply (plain text). */
+export function answerTask({ text, question, rowsText, rowCount, capped, closeNames }) {
+  return [
+    "TASK: answer",
+    `User's message: ${text}`,
+    `Question looked up: ${question}`,
+    `Rows: ${rowCount}${capped ? ` (cut off at the ${config.db.maxRows}-row limit, more exist)` : ""}`,
+    rowsText || "(no rows)",
+    closeNames ? `Close names in the database: ${closeNames}` : "",
     [
-      "Rules:",
-      "- One MySQL SELECT (or WITH … SELECT). Use only tables and columns from the schema. No comments, no semicolon.",
-      `- At most ${config.db.maxRows} rows (add LIMIT). For "how many" use COUNT(*) or COUNT(DISTINCT …).`,
-      "- Text matching must be forgiving: use LIKE '%word%' on each important word, combined with AND, never one long exact string. Example: name LIKE '%itti%' AND name LIKE '%quetta%'.",
-      "- Numbers in names: 'batch 10' may be stored as 'Batch 10', 'Batch-10', 'B10' or just 10 in a number column. Use (col LIKE '%10%') or the number column, and avoid matching 100 or 110 by mistake when possible (e.g. col REGEXP '[^0-9]10$|^10$|[^0-9]10[^0-9]').",
-      "- For full details of a record, select every column of that table and JOIN lookup tables to show names instead of ids.",
-      "- Prefer readable columns (names, titles, dates) and give computed columns clear aliases.",
-      "- 'Current' / 'running' / 'active' means: a status column if one exists, otherwise start date <= CURDATE() AND (end date >= CURDATE() OR end date IS NULL). 'Latest' means ORDER BY the date or id DESC LIMIT 1.",
-      "- Use CURDATE()/NOW() for relative dates.",
-      "Output only the SQL.",
+      "Write the WhatsApp reply now, as plain text (not JSON):",
+      "- Use ONLY these rows; never invent data. No SQL, table or column names.",
+      "- Direct answer first, then short details. Field names in plain words (std_cnic → CNIC). Skip empty fields and internal ids.",
+      "- If you used an official name that differs from the user's spelling, mention it.",
+      "- No rows: say nothing matched, mention close names if any, and ask the user to check the spelling/number or add a detail.",
     ].join("\n"),
   ]
     .filter(Boolean)
     .join("\n\n");
 }
 
-/** Step 3: turn rows into the WhatsApp answer. */
-export function answerPrompt() {
+/** TASK clarify: nothing worked, ask one helpful question (plain text). */
+export function clarifyTask({ text, question, names }) {
   return [
-    header(),
-    "You get the user's message, the question you looked up and the database rows. Write the reply to the user.",
-    [
-      "- Use ONLY the rows. Never invent records or numbers. Do not mention SQL, tables or column names.",
-      "- Start with the direct answer (the number / the name / yes-no), then short supporting details.",
-      "- Show field names in plain words (std_cnic → CNIC, created_at → Created). Skip empty/null fields and internal ids.",
-      "- If you used an official name that differs from the user's spelling, mention it, e.g. 'For *ITTI Quetta*: …'.",
-      "- If there are no rows: say no matching record was found, mention close names if given, and ask the user to check the spelling/number or give one more detail.",
-      "- If the rows were cut off at the limit, say more records exist.",
-    ].join("\n"),
-    LANGUAGE_RULE,
-    WHATSAPP_STYLE,
-  ].join("\n\n");
+    "TASK: clarify",
+    `User's message: ${text}`,
+    `What you understood: ${question}`,
+    names ? `Names that exist in the database: ${names}` : "",
+    "You could not find this in the database. Write ONE short, friendly message (plain text) saying what you understood and asking for the missing detail, with 2-3 concrete options.",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 }
 
-/** Used when no query worked: ask the user one helpful follow-up question. */
-export function clarifyPrompt() {
-  return [
-    header(),
-    "You tried to look this up in the database but could not find a way to answer it.",
-    "Write ONE short, friendly message that says what you understood and asks the user for the missing detail. Suggest 2-3 concrete options of what they could mean, using the hints given.",
-    LANGUAGE_RULE,
-    WHATSAPP_STYLE,
-  ].join("\n\n");
-}
-
-/** Plain conversation without the database. */
+/** Plain conversation when the database is unavailable. */
 export function chatPrompt({ dbDown = false } = {}) {
   return [
-    header(),
-    "Reply naturally and briefly. You can answer questions about the LMS data (students, batches, courses, centers, enrollments, etc.).",
+    `You are ${config.bot.name}, a friendly WhatsApp data assistant. ${config.bot.contextNote}`,
     dbDown ? "The database is temporarily unavailable. If the user asks for data, say the data service is down right now and to try again shortly." : "",
     LANGUAGE_RULE,
     WHATSAPP_STYLE,

@@ -43,7 +43,7 @@ const schema = {
 const catalog = { groups: [{ table: "batches", column: "batch_name", values: ["Batch 9", "Batch 10", "Batch 11"] }], text: "" };
 
 function setup({ chatReplies, rows = [], answer = "ok" }) {
-  const calls = { chat: [], stream: [], sql: [] };
+  const calls = { chat: [], stream: [], sql: [], systems: new Set() };
   const queue = [...chatReplies];
   const rowQueue = [...rows];
   __setDeps({
@@ -52,10 +52,13 @@ function setup({ chatReplies, rows = [], answer = "ok" }) {
     lookupNameHits: async () => [],
     chat: async (messages, opts) => {
       calls.chat.push({ messages: [...messages], opts });
-      return queue.shift() ?? "";
+      calls.systems.add(messages[0].content);
+      const r = queue.shift() ?? "";
+      return typeof r === "string" ? r : JSON.stringify(r);
     },
     streamChat: async function* (messages) {
       calls.stream.push(messages);
+      calls.systems.add(messages[0].content);
       yield answer;
     },
     runQuery: async (sql) => {
@@ -68,6 +71,8 @@ function setup({ chatReplies, rows = [], answer = "ok" }) {
   return calls;
 }
 
+const userOf = (call) => call.messages.at(-1).content;
+
 test("greetings are answered instantly without any model call", async () => {
   const calls = setup({ chatReplies: [] });
   for (const msg of ["Hi", "hello!", "Assalam o alaikum", "How are you", "thanks", "ok"]) {
@@ -77,58 +82,57 @@ test("greetings are answered instantly without any model call", async () => {
   assert.equal(calls.chat.length + calls.stream.length, 0);
 });
 
-test("data question: understand -> sql -> answer (3 model calls)", async () => {
+test("count question: ONE model call, answer from the template", async () => {
   const calls = setup({
     chatReplies: [
-      JSON.stringify({ type: "data", question: "How many students are in Batch 10?", tables: ["students", "batches"] }),
-      "SELECT COUNT(*) AS n FROM students s JOIN batches b ON b.id = s.batch_id WHERE b.batch_name LIKE '%10%'",
+      {
+        type: "data",
+        question: "How many centers are there?",
+        sql: "SELECT COUNT(*) AS n FROM batches",
+        template: "There are {value} centers in the system.",
+      },
     ],
     rows: [[{ n: 1059 }]],
-    answer: "*1,059* students are enrolled in Batch 10.",
   });
-  const r = await runAssistant({ text: "how mny studnts in btch 10", historyKey: "d" });
+  const r = await runAssistant({ text: "how many center we have", historyKey: "d" });
   assert.equal(r.action, "sql");
-  assert.equal(r.rowCount, 1);
-  assert.match(r.reply, /1,059/);
-  assert.equal(calls.chat.length, 2);
-  assert.equal(calls.stream.length, 1);
-  assert.ok(calls.chat[0].opts.json, "understand step uses JSON mode");
-  assert.match(calls.chat[1].messages[0].content, /students\(id\*:int/);
-  assert.match(calls.chat[1].messages[0].content, /batches\(/);
+  assert.equal(r.reply, "There are *1,059* centers in the system.");
+  assert.equal(calls.chat.length, 1);
+  assert.equal(calls.stream.length, 0);
+  assert.ok(calls.chat[0].opts.json);
+  assert.match(calls.chat[0].messages[0].content, /students\(id\*:int/, "schema is in the cached system prompt");
   assert.equal(getLastLookup("d").rowCount, 1);
 });
 
-test("follow-up sees the conversation and the last lookup", async () => {
+test("list/details answers use the same cached system prompt", async () => {
   const calls = setup({
     chatReplies: [
-      JSON.stringify({ type: "data", question: "Show all details of the student with CNIC 54401-6647329-0", tables: ["students"] }),
-      "SELECT * FROM students WHERE REPLACE(std_cnic,'-','') = '5440166473290'",
+      { type: "data", question: "Show all details of the student with CNIC 54401-6647329-0", sql: "SELECT * FROM students WHERE REPLACE(std_cnic,'-','') = '5440166473290'", template: "" },
     ],
     rows: [[{ id: 1, std_name: "Ali", std_cnic: "54401-6647329-0" }]],
     answer: "*Ali*",
   });
   await runAssistant({ text: "54401-6647329-0", historyKey: "f" });
-  // SELECT * was expanded to the allowed columns instead of being rejected
-  assert.match(calls.sql[0], /`std_name`/);
-  assert.match(calls.chat[1].messages[0].content, /CNIC 54401-6647329-0/);
+  assert.match(calls.sql[0], /`std_name`/, "SELECT * expanded to allowed columns");
+  assert.match(userOf(calls.chat[0]), /CNIC 54401-6647329-0/);
+  assert.equal(calls.stream.length, 1);
+  assert.equal(calls.systems.size, 1, "every call shares one system prompt");
 
   const calls2 = setup({
     chatReplies: [
-      JSON.stringify({ type: "data", question: "What is the phone number of the student with CNIC 54401-6647329-0?", tables: ["students"] }),
-      "SELECT std_phone FROM students WHERE REPLACE(std_cnic,'-','') = '5440166473290'",
+      { type: "data", question: "Phone of student with CNIC 54401-6647329-0?", sql: "SELECT std_phone FROM students WHERE REPLACE(std_cnic,'-','') = '5440166473290'", template: "The phone number is {value}." },
     ],
     rows: [[{ std_phone: "03001234567" }]],
   });
-  await runAssistant({ text: "uska phone number?", historyKey: "f" });
-  const sys = calls2.chat[0].messages[0].content;
-  assert.match(sys, /User: 54401-6647329-0/);
-  assert.match(sys, /Your last database lookup/);
-  assert.match(calls2.chat[1].messages[1].content, /Previous query in this chat/);
+  const r = await runAssistant({ text: "uska phone number?", historyKey: "f" });
+  assert.match(userOf(calls2.chat[0]), /User: 54401-6647329-0/);
+  assert.match(userOf(calls2.chat[0]), /Your last database lookup/);
+  assert.equal(r.reply, "The phone number is *03001234567*.");
 });
 
 test("bare CNIC is treated as a lookup even if the model says chat", async () => {
   const calls = setup({
-    chatReplies: [JSON.stringify({ type: "chat", reply: "Hello" }), "SELECT std_name FROM students WHERE std_cnic = '5440166473290'"],
+    chatReplies: [{ type: "chat", reply: "Hello", sql: "SELECT std_name FROM students WHERE std_cnic = '5440166473290'" }],
     rows: [[{ std_name: "Ali" }]],
   });
   const r = await runAssistant({ text: "5440166473290", historyKey: "c" });
@@ -136,14 +140,13 @@ test("bare CNIC is treated as a lookup even if the model says chat", async () =>
   assert.equal(calls.sql.length, 1);
 });
 
-test("SQL errors are repaired, empty results are broadened", async () => {
+test("SQL errors are repaired, empty and zero results are broadened", async () => {
   const err = Object.assign(new Error("bad"), { sqlMessage: "Unknown column 'name'" });
   const calls = setup({
     chatReplies: [
-      JSON.stringify({ type: "data", question: "Which batch is currently running?", tables: ["batches"] }),
-      "SELECT name FROM batches",
-      "SELECT batch_name FROM batches WHERE start_date <= CURDATE() AND end_date >= CURDATE()",
-      "SELECT batch_name FROM batches ORDER BY start_date DESC LIMIT 1",
+      { type: "data", question: "Which batch is currently running?", sql: "SELECT name FROM batches" },
+      { sql: "SELECT batch_name FROM batches WHERE start_date <= CURDATE() AND end_date >= CURDATE()" },
+      { sql: "SELECT batch_name FROM batches ORDER BY start_date DESC LIMIT 1" },
     ],
     rows: [err, [], [{ batch_name: "Batch 11" }]],
     answer: "*Batch 11* is running.",
@@ -151,13 +154,26 @@ test("SQL errors are repaired, empty results are broadened", async () => {
   const r = await runAssistant({ text: "which batch is currently running", historyKey: "e" });
   assert.equal(r.action, "sql");
   assert.equal(calls.sql.length, 3);
-  assert.match(calls.chat[2].messages.at(-1).content, /Unknown column/);
-  assert.match(calls.chat[3].messages.at(-1).content, /0 rows/);
+  assert.match(userOf(calls.chat[1]), /Unknown column/);
+  assert.match(userOf(calls.chat[1]), /batches\(/, "fix step gets the table columns");
+  assert.match(userOf(calls.chat[2]), /0 rows/);
+  assert.equal(calls.systems.size, 1);
+
+  const calls2 = setup({
+    chatReplies: [
+      { type: "data", question: "How many students in Batch 10?", sql: "SELECT COUNT(*) AS n FROM students WHERE batch_id = 999", template: "{value} students." },
+      { sql: "SELECT COUNT(*) AS n FROM students WHERE batch_id = 10" },
+    ],
+    rows: [[{ n: 0 }], [{ n: 7 }]],
+  });
+  const r2 = await runAssistant({ text: "students btch 10", historyKey: "z" });
+  assert.equal(calls2.sql.length, 2, "a 0 count is re-checked once");
+  assert.equal(r2.reply, "*7* students.");
 });
 
 test("when nothing works the bot asks a clarifying question instead of erroring", async () => {
   setup({
-    chatReplies: [JSON.stringify({ type: "data", question: "x", tables: [] }), "nope", "still nope", "no", "no"],
+    chatReplies: [{ type: "data", question: "x", sql: "nope" }, "still nope", "no", "no"],
     answer: "Did you mean Batch 10 or Batch 11?",
   });
   const r = await runAssistant({ text: "the thing for btch", historyKey: "x" });
@@ -165,26 +181,29 @@ test("when nothing works the bot asks a clarifying question instead of erroring"
   assert.match(r.reply, /Batch/);
 });
 
-test("clarify from the understand step is passed through", async () => {
-  setup({ chatReplies: [JSON.stringify({ type: "clarify", reply: "Which batch do you mean?" })] });
-  const r = await runAssistant({ text: "tell me about it", historyKey: "q" });
+test("chat and clarify replies come straight from the plan call", async () => {
+  let calls = setup({ chatReplies: [{ type: "clarify", reply: "Which batch do you mean?" }] });
+  let r = await runAssistant({ text: "tell me about it", historyKey: "q" });
   assert.equal(r.action, "clarify");
   assert.equal(r.reply, "Which batch do you mean?");
+  assert.equal(calls.chat.length, 1);
+  calls = setup({ chatReplies: [{ type: "chat", reply: "I can answer questions about students, batches and centers." }] });
+  r = await runAssistant({ text: "what can you do for me", historyKey: "q" });
+  assert.equal(r.action, "reply");
+  assert.equal(calls.chat.length + calls.stream.length, 1);
 });
 
 test("progress notes show understanding but never SQL or schema", async () => {
   setup({
     chatReplies: [
-      JSON.stringify({ type: "data", question: "How many students are in Batch 10?", tables: ["students"] }),
-      "SELECT COUNT(*) AS n FROM students WHERE batch_id = 999",
-      "SELECT COUNT(*) AS n FROM students WHERE batch_id = 10",
+      { type: "data", question: "How many students are in Batch 10?", sql: "SELECT std_name FROM students WHERE batch_id = 999" },
+      { sql: "SELECT std_name FROM students WHERE batch_id = 10" },
     ],
-    rows: [[], [{ n: 5 }]],
+    rows: [[], [{ std_name: "Ali" }]],
   });
   const notes = [];
   await runAssistant({ text: "studnts btch 10", historyKey: "p", onProgress: (n) => notes.push(n) });
-  assert.ok(notes[0].includes("Understood: How many students are in Batch 10?"), notes[0]);
-  assert.ok(!notes[0].includes("matched"), "no redundant match note");
+  assert.ok(notes[0].startsWith("🔎 _How many students are in Batch 10?_"), notes[0]);
   assert.ok(notes.some((n) => n.includes("broader")));
   for (const n of notes) assert.doesNotMatch(n, /select|from |students\(|batch_id/i);
 });

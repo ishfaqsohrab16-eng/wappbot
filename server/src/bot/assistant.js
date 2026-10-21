@@ -1,7 +1,7 @@
 import { config } from "../config.js";
 import { log } from "../logger.js";
 import { chat, streamChat, llmQueue } from "../llm/client.js";
-import { getSchema, describeTables, listTableNames } from "../db/schema.js";
+import { getSchema, describeTables, listTableNames, resolveTables } from "../db/schema.js";
 import { runQuery } from "../db/pool.js";
 import { guardSql, extractSql, expandStars } from "../db/sqlGuard.js";
 import { getCatalog, rankCatalog, formatRanked, lookupNameHits } from "../db/catalog.js";
@@ -14,17 +14,45 @@ import * as P from "./prompts.js";
 let deps = { chat, streamChat, getSchema, getCatalog, runQuery, lookupNameHits };
 export function __setDeps(d) {
   deps = { ...deps, ...d };
+  staticCache = null;
 }
 
 const FALLBACK_REPLY = "Sorry, I didn't quite get that. Could you say it another way, e.g. *how many students are in batch 10*?";
+// Whole schema goes into the cached system prompt when it fits (~4k tokens).
+const STATIC_FULL_CHARS = 14000;
+const STATIC_OVERVIEW_CHARS = 9000;
 
-async function streamText(messages, { signal, onToken, maxTokens, temperature }) {
-  let out = "";
-  for await (const tok of deps.streamChat(messages, { signal, queued: false, maxTokens, temperature })) {
-    out += tok;
-    onToken?.(tok);
+let staticCache = null; // { key, system, full }
+
+/** The shared system prompt for this schema (identical across calls → cached by Ollama). */
+export function staticSystem(schema) {
+  const key = schema.loadedAt;
+  if (staticCache?.key === key) return staticCache;
+  const fullText = describeTables(schema);
+  const full = fullText.length <= STATIC_FULL_CHARS;
+  const schemaText = full ? fullText : listTableNames(schema, STATIC_OVERVIEW_CHARS);
+  staticCache = { key, full, system: P.systemPrompt({ schemaText, full }) };
+  log.info(`System prompt: ${staticCache.system.length} chars (${full ? "full schema" : "table overview"})`);
+  return staticCache;
+}
+
+/** Load the system prompt into Ollama's cache so the first question is fast. */
+export async function primeCache() {
+  try {
+    const schema = await deps.getSchema();
+    if (!schema.tables.size) return;
+    const started = Date.now();
+    await deps.chat(
+      [
+        { role: "system", content: staticSystem(schema).system },
+        { role: "user", content: "TASK: ping. Reply OK." },
+      ],
+      { maxTokens: 2, temperature: 0 }
+    );
+    log.info(`Prompt cache primed in ${Date.now() - started}ms`);
+  } catch (err) {
+    log.warn("Prompt cache priming failed:", err.message);
   }
-  return out.trim();
 }
 
 function mergeRanked(...lists) {
@@ -36,39 +64,18 @@ function mergeRanked(...lists) {
     seen.add(k);
     out.push(h);
   }
-  return out.slice(0, 14);
+  return out.slice(0, 10);
 }
 
-/** Step 1: one JSON call that understands the message in context. */
-async function understand({ schema, catalog, text, history, last, signal }) {
-  const ranked = rankCatalog(catalog, text, { limit: 12, minScore: 60 });
-  const sys = P.understandPrompt({
-    tableList: listTableNames(schema),
-    ranked: formatRanked(ranked),
-    lastLookup: lastLookupText(last),
-    transcript: transcript(history),
-  });
-  const raw = await deps.chat(
-    [
-      { role: "system", content: sys },
-      { role: "user", content: `[Today is ${P.today()}]\nNew message: ${text}` },
-    ],
-    { signal, queued: false, json: true, maxTokens: 400, temperature: 0 }
-  );
-  const u = parseJson(raw) || {};
-  let type = ["data", "chat", "clarify"].includes(u.type) ? u.type : looksLikeDataQuestion(text) ? "data" : "chat";
-  // A bare CNIC / phone / long number is always a lookup.
-  if (type !== "data" && (identifierHints(text).length || /\d{5,}/.test(text))) type = "data";
-  const question = typeof u.question === "string" && u.question.trim().length > 3 ? u.question.trim() : text;
-  const tables = Array.isArray(u.tables) ? u.tables.map(String) : typeof u.tables === "string" ? u.tables.split(/[\s,]+/) : [];
-  const reply = typeof u.reply === "string" ? u.reply.trim() : "";
-  log.debug(`understand: ${type} | ${question} | ${tables.join(",")}`);
-  return { type, question, tables, reply };
+function tablesInSql(schema, sql) {
+  const names = [...String(sql || "").matchAll(/\b(?:from|join)\s+`?([a-zA-Z0-9_]+)`?/gi)].map((m) => m[1]);
+  return resolveTables(schema, names);
 }
 
 async function runSql(candidate, schema) {
-  const g = guardSql(expandStars(extractSql(candidate), schema.tables));
-  if (!g.ok) return { error: g.error, sql: extractSql(candidate) };
+  const raw = extractSql(candidate);
+  const g = guardSql(expandStars(raw, schema.tables));
+  if (!g.ok) return { error: g.error, sql: raw };
   try {
     const res = await deps.runQuery(g.sql);
     return { sql: g.sql, rows: res.rows };
@@ -77,63 +84,28 @@ async function runSql(candidate, schema) {
   }
 }
 
-/** Step 2: write SQL, run it, repair errors and broaden empty results. */
-async function lookup({ schema, catalog, question, text, picked, last, signal, onStatus, onProgress }) {
-  const ranked = mergeRanked(
-    rankCatalog(catalog, question, { limit: 14, minScore: 55 }),
-    rankCatalog(catalog, text, { limit: 8, minScore: 60 })
-  );
-  const tables = chooseTables(schema, { picked, question, text, ranked });
-  const idHints = identifierHints(`${text}\n${question}`);
-  const messages = [
-    { role: "system", content: P.sqlPrompt({ schemaText: describeTables(schema, tables), ranked: formatRanked(ranked), idHints }) },
-    {
-      role: "user",
-      content: [
-        `Today is ${P.today()}.`,
-        `Question: ${question}`,
-        text !== question ? `User's original words: ${text}` : "",
-        last?.sql ? `Previous query in this chat (reuse its filters for follow-ups): ${last.sql.replace(/\s+/g, " ")}` : "",
-      ]
-        .filter(Boolean)
-        .join("\n"),
-    },
-  ];
+function scalar(rows) {
+  if (rows?.length !== 1) return undefined;
+  const vals = Object.values(rows[0]);
+  return vals.length === 1 ? vals[0] : undefined;
+}
 
-  let good = null;
-  let empty = null;
-  let closeNames = [];
-  let lastError = null;
-  const steps = Math.max(2, config.llm.maxAgentSteps);
-  let candidate = await deps.chat(messages, { signal, queued: false, maxTokens: 600, temperature: 0 });
+const isZero = (v) => v === null || v === 0 || v === "0" || v === "0.00";
 
-  for (let step = 0; step < steps; step++) {
-    onStatus?.("querying");
-    const r = await runSql(candidate, schema);
-    let feedback;
-    if (r.error) {
-      lastError = r.error;
-      log.warn(`SQL rejected/failed (step ${step + 1}): ${r.error}\n${r.sql}`);
-      if (step === 0) onProgress?.("🛠️ Adjusting the search…");
-      feedback = `That query failed: ${r.error}. Write a corrected query using only the schema's tables and columns. Output only the SQL.`;
-    } else if (r.rows.length) {
-      good = r;
-      break;
-    } else {
-      if (empty) break; // already broadened once; accept "no rows"
-      onProgress?.("🔁 No exact match yet, trying a broader search…");
-      empty = r;
-      closeNames = await deps.lookupNameHits(schema, `${question} ${text}`, tables).catch(() => []);
-      feedback =
-        "The query returned 0 rows. " +
-        (closeNames.length ? `These similar values exist in the database:\n${formatRanked(closeNames.slice(0, 12))}\n` : "") +
-        "Write a broader query: use the official values above if they fit, LIKE on single key words, fewer filters, or another column/table that may hold the value. Output only the SQL.";
-    }
-    if (step === steps - 1) break;
-    messages.push({ role: "assistant", content: r.sql || extractSql(candidate) }, { role: "user", content: feedback });
-    candidate = await deps.chat(messages, { signal, queued: false, maxTokens: 600, temperature: 0.1 });
+function fmtValue(v) {
+  const s = String(v ?? "");
+  // Thousands separators for amounts/counts only; keep phone, CNIC and ids as stored.
+  if (/^-?[1-9]\d{0,8}(\.\d+)?$/.test(s)) return Number(s).toLocaleString("en-US", { maximumFractionDigits: 2 });
+  return s;
+}
+
+async function streamText(messages, { signal, onToken, maxTokens, temperature }) {
+  let out = "";
+  for await (const tok of deps.streamChat(messages, { signal, queued: false, maxTokens, temperature })) {
+    out += tok;
+    onToken?.(tok);
   }
-  return { result: good || empty, closeNames, ranked, lastError };
+  return out.trim();
 }
 
 /**
@@ -143,6 +115,8 @@ async function lookup({ schema, catalog, question, text, picked, last, signal, o
  */
 export async function runAssistant(p) {
   const started = Date.now();
+  const timing = [];
+  const mark = (label, t0) => timing.push(`${label} ${Date.now() - t0}ms`);
   const text = String(p.text || "").trim().slice(0, config.llm.maxUserChars);
   const key = p.historyKey;
   const status = (s) => p.onStatus?.(s);
@@ -151,7 +125,9 @@ export async function runAssistant(p) {
     if (!result.reply) result.reply = FALLBACK_REPLY;
     appendHistory(key, "user", text);
     appendHistory(key, "assistant", result.reply);
-    return { ...result, ms: Date.now() - started };
+    const ms = Date.now() - started;
+    if (timing.length) log.info(`Answered in ${ms}ms [${result.action}] (${timing.join(", ")})`);
+    return { ...result, ms };
   };
 
   // Greetings and thanks: instant, no model call.
@@ -167,89 +143,179 @@ export async function runAssistant(p) {
     const history = getHistory(key);
     const schema = await deps.getSchema();
 
-    const chatReply = async (dbDown = false) => {
+    if (!schema.tables.size) {
       status("answering");
-      return streamText(
-        [{ role: "system", content: P.chatPrompt({ dbDown }) }, ...history.slice(-8), { role: "user", content: text }],
+      const t0 = Date.now();
+      const reply = await streamText(
+        [{ role: "system", content: P.chatPrompt({ dbDown: true }) }, ...history.slice(-6), { role: "user", content: text }],
         { signal: p.signal, onToken: p.onToken, maxTokens: 250 }
       );
-    };
-
-    if (!schema.tables.size) return finish({ action: "reply", reply: await chatReply(true) });
-
-    const catalog = await deps.getCatalog(schema);
-    const last = getLastLookup(key);
-    status("thinking");
-    const u = await understand({ schema, catalog, text, history, last, signal: p.signal });
-
-    if (u.type === "chat" || u.type === "clarify") {
-      if (u.reply) {
-        p.onToken?.(u.reply);
-        return finish({ action: u.type === "clarify" ? "clarify" : "reply", reply: u.reply });
-      }
-      return finish({ action: "reply", reply: await chatReply() });
+      mark("chat", t0);
+      return finish({ action: "reply", reply });
     }
 
-    p.onProgress?.(`🔎 Understood: ${u.question}\nChecking the records…`);
-    const { result, closeNames, ranked, lastError } = await lookup({
-      schema,
-      catalog,
-      question: u.question,
-      text,
-      picked: u.tables,
-      last,
-      signal: p.signal,
-      onStatus: status,
-      onProgress: p.onProgress,
-    });
+    const { system, full } = staticSystem(schema);
+    const sys = { role: "system", content: system };
+    const catalog = await deps.getCatalog(schema);
+    const last = getLastLookup(key);
+    const ranked = rankCatalog(catalog, text, { limit: 8, minScore: 60 });
+    const idHints = identifierHints(text);
+    const likely = full ? [] : chooseTables(schema, { question: text, text, ranked, budget: 3500 });
+
+    // ---- 1 call: understand + SQL ----
+    status("thinking");
+    let t0 = Date.now();
+    const planRaw = await deps.chat(
+      [
+        sys,
+        {
+          role: "user",
+          content: P.planTask({
+            today: P.today(),
+            transcript: transcript(history.slice(-8), 1500),
+            lastLookup: lastLookupText(last),
+            tableDetails: likely.length ? describeTables(schema, likely) : "",
+            ranked: formatRanked(ranked),
+            idHints,
+            text,
+          }),
+        },
+      ],
+      { signal: p.signal, queued: false, json: true, maxTokens: 500, temperature: 0 }
+    );
+    mark("plan", t0);
+    const plan = parseJson(planRaw) || {};
+    let type = ["data", "chat", "clarify"].includes(plan.type) ? plan.type : looksLikeDataQuestion(text) ? "data" : "chat";
+    if (type !== "data" && (idHints.length || /\d{5,}/.test(text))) type = "data"; // bare CNIC / phone
+    const question = typeof plan.question === "string" && plan.question.trim().length > 3 ? plan.question.trim() : text;
+    const reply0 = typeof plan.reply === "string" ? plan.reply.trim() : "";
+    log.debug(`plan: ${type} | ${question}`);
+
+    if (type !== "data") {
+      if (reply0) {
+        p.onToken?.(reply0);
+        return finish({ action: type === "clarify" ? "clarify" : "reply", reply: reply0 });
+      }
+      status("answering");
+      t0 = Date.now();
+      const reply = await streamText(
+        [sys, { role: "user", content: `TASK: chat\n\nConversation so far:\n${transcript(history.slice(-6), 1000)}\n\nNew message: ${text}\n\nReply briefly in plain text.` }],
+        { signal: p.signal, onToken: p.onToken, maxTokens: 200 }
+      );
+      mark("chat", t0);
+      return finish({ action: "reply", reply });
+    }
+
+    p.onProgress?.(`🔎 _${question.replace(/[_*]/g, "")}_\nChecking the records…`);
+
+    // ---- run, repair errors, broaden empty results ----
+    let candidate = typeof plan.sql === "string" && plan.sql.trim() ? plan.sql : "";
+    let good = null;
+    let empty = null;
+    let closeNames = [];
+    let lastError = candidate ? null : "no query was written";
+    const steps = Math.max(2, config.llm.maxAgentSteps);
+    for (let step = 0; step < steps; step++) {
+      let problem;
+      let r = null;
+      if (candidate) {
+        status("querying");
+        t0 = Date.now();
+        r = await runSql(candidate, schema);
+        mark("sql", t0);
+      }
+      if (!r || r.error) {
+        lastError = r?.error || lastError;
+        if (r) log.warn(`SQL rejected/failed (step ${step + 1}): ${r.error}\n${r.sql}`);
+        if (step === 0) p.onProgress?.("🛠️ Adjusting the search…");
+        problem = `the query failed: ${lastError}`;
+      } else if (r.rows.length && !(isZero(scalar(r.rows)) && !empty)) {
+        good = r;
+        break;
+      } else {
+        if (empty) {
+          good = r.rows.length ? r : null;
+          break;
+        }
+        empty = r;
+        p.onProgress?.("🔁 No exact match yet, trying a broader search…");
+        closeNames = await deps.lookupNameHits(schema, `${question} ${text}`, tablesInSql(schema, r.sql)).catch(() => []);
+        problem = r.rows.length ? "it returned 0 / nothing" : "it returned 0 rows";
+      }
+      if (step === steps - 1) break;
+      const used = [...new Set([...tablesInSql(schema, r?.sql || candidate), ...likely])].slice(0, 6);
+      t0 = Date.now();
+      const fixRaw = await deps.chat(
+        [
+          sys,
+          {
+            role: "user",
+            content: P.fixTask({
+              question,
+              sql: (r?.sql || candidate || "(none)").replace(/\s+/g, " "),
+              problem,
+              tableDetails: used.length ? describeTables(schema, used) : "",
+              closeNames: formatRanked(closeNames.slice(0, 10)),
+            }),
+          },
+        ],
+        { signal: p.signal, queued: false, json: true, maxTokens: 400, temperature: 0.1 }
+      );
+      mark("fix", t0);
+      const fixed = parseJson(fixRaw);
+      candidate = typeof fixed?.sql === "string" ? fixed.sql : extractSql(fixRaw);
+    }
+    const result = good || empty;
 
     status("answering");
     if (!result) {
-      // No query worked: ask a helpful follow-up instead of a dead-end error.
-      log.warn(`No working query for "${u.question}" (${lastError})`);
-      const hints = mergeRanked(ranked, closeNames).slice(0, 8);
-      const reply = await streamText(
-        [
-          { role: "system", content: P.clarifyPrompt() },
-          {
-            role: "user",
-            content:
-              `User's message: ${text}\nWhat you understood: ${u.question}\n` +
-              (hints.length ? `Names that exist in the database:\n${hints.map((h) => `- ${h.value}`).join("\n")}` : ""),
-          },
-        ],
-        { signal: p.signal, onToken: p.onToken, maxTokens: 200 }
-      );
+      log.warn(`No working query for "${question}" (${lastError})`);
+      const names = mergeRanked(ranked, closeNames).slice(0, 8).map((h) => h.value).join(" | ");
+      t0 = Date.now();
+      const reply = await streamText([sys, { role: "user", content: P.clarifyTask({ text, question, names }) }], {
+        signal: p.signal,
+        onToken: p.onToken,
+        maxTokens: 200,
+      });
+      mark("clarify", t0);
       return finish({ action: "clarify", reply });
     }
 
-    const capped = result.rows.length >= config.db.maxRows;
-    const reply = await streamText(
-      [
-        { role: "system", content: P.answerPrompt() },
-        {
-          role: "user",
-          content: [
-            `User's message: ${text}`,
-            `Question looked up: ${u.question}`,
-            `Rows: ${result.rows.length}${capped ? ` (cut off at the ${config.db.maxRows}-row limit)` : ""}`,
-            result.rows.length ? formatRows(result.rows) : "(no rows)",
-            !result.rows.length && closeNames.length
-              ? `Close names in the database: ${closeNames.slice(0, 8).map((h) => h.value).join(" | ")}`
-              : "",
-          ]
-            .filter(Boolean)
-            .join("\n"),
-        },
-      ],
-      { signal: p.signal, onToken: p.onToken, maxTokens, temperature: 0.2 }
-    );
     setLastLookup(key, {
-      question: u.question,
+      question,
       sql: result.sql,
       rowCount: result.rows.length,
       sample: result.rows.length ? formatRows(result.rows.slice(0, 3), 700) : "",
     });
+
+    // Single value (a count, a date, a name): fill the template, no extra model call.
+    const v = scalar(result.rows);
+    const template = typeof plan.template === "string" ? plan.template.trim() : "";
+    if (v !== undefined && v !== null && template.includes("{value}") && template.length < 300) {
+      const reply = template.replace(/\*?\{value\}\*?/g, `*${fmtValue(v)}*`);
+      p.onToken?.(reply);
+      return finish({ action: "sql", reply, sql: result.sql, rowCount: 1 });
+    }
+
+    t0 = Date.now();
+    const reply = await streamText(
+      [
+        sys,
+        {
+          role: "user",
+          content: P.answerTask({
+            text,
+            question,
+            rowsText: result.rows.length ? formatRows(result.rows) : "",
+            rowCount: result.rows.length,
+            capped: result.rows.length >= config.db.maxRows,
+            closeNames: !result.rows.length ? closeNames.slice(0, 8).map((h) => h.value).join(" | ") : "",
+          }),
+        },
+      ],
+      { signal: p.signal, onToken: p.onToken, maxTokens, temperature: 0.2 }
+    );
+    mark("answer", t0);
     return finish({ action: "sql", reply, sql: result.sql, rowCount: result.rows.length });
   } finally {
     release();

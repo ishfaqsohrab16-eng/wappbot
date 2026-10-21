@@ -5,7 +5,7 @@ import { requireAuth, checkPassword, issueToken } from "./auth.js";
 import { createRateLimiter } from "../util/rateLimit.js";
 import { toAppError } from "../util/errors.js";
 import { llmQueue, llmHealth } from "../llm/client.js";
-import { runAssistant } from "../bot/assistant.js";
+import { runAssistant, primeCache } from "../bot/assistant.js";
 import { clearHistory } from "../store/history.js";
 import { listUsers, addUser, removeUser, adminNumbers } from "../store/users.js";
 import { getSchema, schemaSummary } from "../db/schema.js";
@@ -167,7 +167,9 @@ apiRouter.get("/schema", requireAuth, async (_req, res) => {
 
 apiRouter.post("/schema/refresh", requireAuth, async (_req, res) => {
   invalidateCatalog();
-  res.json(schemaSummary(await getSchema({ refresh: true })));
+  const s = await getSchema({ refresh: true });
+  if (!s.error) primeCache();
+  res.json(schemaSummary(s));
 });
 
 export function webhookUrl() {

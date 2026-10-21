@@ -6,6 +6,7 @@ import { getSchema } from "../db/schema.js";
 import { collectHealth } from "../health.js";
 import { sendText } from "../whatsapp/evolution.js";
 import { log } from "../logger.js";
+import { primeCache } from "./assistant.js";
 
 const USER_HELP = () =>
   [
@@ -134,6 +135,7 @@ export async function handleCommand(phone, text) {
     }
     case "refresh": {
       const s = await getSchema({ refresh: true });
+      if (!s.error) primeCache();
       return s.error ? `❌ Schema reload failed: ${s.error}` : `🔄 Schema reloaded: ${s.tables.size} tables.`;
     }
     default:
