@@ -45,6 +45,14 @@ function where(e, plan, student) {
     else sql.push(`${expr} IN (?)`);
     params.push(vals);
   }
+  // "what about the others" → everything except the previous filter value
+  for (const [name, v] of Object.entries(plan.exclude || {})) {
+    const expr = e.filters?.[name];
+    if (!expr || !v.ids?.length) continue;
+    if (expr.includes("?")) sql.push(`NOT (${expr})`);
+    else sql.push(`(${expr} NOT IN (?) OR ${expr} IS NULL)`);
+    params.push(v.ids);
+  }
   if (student && e.student) {
     sql.push(`${e.student.col} = ?`);
     params.push(student[e.student.via]);
@@ -326,87 +334,138 @@ function isEmpty(v) {
   return v === null || v === undefined || v === "" || v === "null";
 }
 
-/** Reply text for an executed plan. */
+const ICON = {
+  student: "🎓", candidate: "📝", trainer: "👨‍🏫", master_trainer: "🧑‍💼", allocation: "🗂️", batch: "📅", center: "🏫", course: "📚",
+  attendance: "✅", earning: "💰", ticket: "🎫", assignment: "📄", submission: "📥", result: "🏅", leave: "🌴", trainer_leave: "🌴",
+  holiday: "🏖️", schedule: "🕘", center_dates: "📆", recording: "🎥", resource: "📎", lecture_report: "📝", trainer_attendance: "🕒",
+  quiz_attempt: "❓", quiz: "❓", feedback: "💬", document: "📂", freelance_profile: "🌐", announcement: "📢", user: "👤",
+  module: "📘", topic: "🔖", topic_report: "📊", login: "🔐", center_visit: "🚗", weekly_evaluation: "📈", online_class_report: "💻",
+};
+
+const FIELD_ICON = [
+  [/^(cnic)$/i, "🪪"], [/phone|whatsapp|mobile/i, "📞"], [/email/i, "✉️"], [/^roll/i, "🔢"], [/father/i, "👨"],
+  [/gender/i, "⚧"], [/qualification|degree|institute/i, "🎓"], [/district|city|location|domicile|address/i, "📍"],
+  [/^batch$/i, "📅"], [/^course$/i, "📚"], [/^center$/i, "🏫"], [/status/i, "🔘"], [/date|on$|^added|^applied|starts|ends|time|created/i, "🗓️"],
+  [/marks|score|amount/i, "🔢"],
+];
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** "2026-10-14 00:00:00" → "14 Oct 2026"; "2026-10-22 11:53:48" → "22 Oct 2026, 11:53"; "11:53:48" → "11:53". */
+export function prettyValue(v) {
+  if (isEmpty(v)) return v;
+  const s = String(v);
+  const dt = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::\d{2})?(?:\.\d+)?Z?)?$/);
+  if (dt) {
+    const d = `${Number(dt[3])} ${MONTHS[Number(dt[2]) - 1]} ${dt[1]}`;
+    return dt[4] && !(dt[4] === "00" && dt[5] === "00") ? `${d}, ${dt[4]}:${dt[5]}` : d;
+  }
+  const tm = s.match(/^(\d{2}):(\d{2}):\d{2}$/);
+  if (tm) return `${tm[1]}:${tm[2]}`;
+  return s.length > 90 ? `${s.slice(0, 90)}…` : s;
+}
+
+function bar(n, max, width = 10) {
+  const filled = max ? Math.max(Number(n) > 0 ? 1 : 0, Math.round((Number(n) / max) * width)) : 0;
+  return "▰".repeat(filled) + "▱".repeat(width - filled);
+}
+
+function scopeText(plan) {
+  const s = filterSummary(plan);
+  const ex = Object.values(plan.exclude || {}).map((x) => `excluding ${x.label}`);
+  const all = [s, ...ex].filter(Boolean).join(" · ");
+  return all ? `\n_${all}_` : "";
+}
+
+/** Reply text for an executed plan (WhatsApp formatting). */
 export function formatReply(plan, res, { entities, dict }) {
   const e = entities[plan.entity];
-  const scope = filterSummary(plan);
-  const scopeLine = scope ? `\n_${scope}_` : "";
-  const who = res.meta?.student ? ` for *${res.meta.student.name || res.meta.student.std_rollno}*` : "";
+  const icon = ICON[plan.entity] || "📋";
+  const scopeLine = scopeText(plan);
+  const who = res.meta?.student ? ` — *${res.meta.student.name || res.meta.student.std_rollno}*` : "";
 
   if (res.meta?.studentNotFound)
-    return `I couldn't find a student with ${plan.ident.type === "name" ? "the name" : plan.ident.type.toUpperCase()} *${plan.ident.display}*. Please check it and send again.`;
+    return `🔍 I couldn't find a student with ${plan.ident.type === "name" ? "the name" : plan.ident.type.toUpperCase()} *${plan.ident.display}*.\nPlease check it and send again.`;
 
   switch (plan.op) {
     case "count": {
       const noun = plan.entity === "attendance" ? "students" : res.n === 1 ? e.singular : e.plural;
       const label = plan.entity === "attendance" && plan.filters?.status?.label ? ` ${plan.filters.status.label}` : "";
-      return `*${fmtNum(res.n)}* ${noun}${label}${who}${scopeLine}`;
+      const hint = res.n > 0 && res.n <= 200 && ["student", "trainer", "center", "course", "batch", "candidate"].includes(plan.entity) ? `\n\n_Reply *list* to see them._` : "";
+      return `${icon} *${fmtNum(res.n)}* ${noun}${label}${who}${scopeLine}${hint}`;
     }
     case "count_by": {
-      if (!res.rows.length) return `No ${e.plural} found${who}.${scopeLine}`;
+      if (!res.rows.length) return `${icon} No ${e.plural} found${who}.${scopeLine}`;
       const total = res.rows.reduce((s, r) => s + Number(r.n || 0), 0);
-      const lines = res.rows.slice(0, 40).map((r) => {
+      const max = Math.max(...res.rows.map((r) => Number(r.n) || 0));
+      const lines = res.rows.slice(0, 30).map((r) => {
         const h = humanizeRow(r, { dict, entity: e, dim: plan.dim });
-        const pct = total ? ` (${Math.round((Number(r.n) / total) * 100)}%)` : "";
-        return `• ${isEmpty(h.k) ? "Not set" : h.k}: *${fmtNum(r.n)}*${pct}`;
+        const pct = total ? Math.round((Number(r.n) / total) * 100) : 0;
+        return `*${isEmpty(h.k) ? "Not set" : prettyValue(h.k)}*\n${bar(r.n, max)} ${fmtNum(r.n)} (${pct}%)`;
       });
-      const more = res.rows.length > 40 ? `\n…and ${res.rows.length - 40} more` : "";
-      return `*${cap(e.plural)} by ${plan.dim}*${who}${scopeLine}\n${lines.join("\n")}${more}\nTotal: *${fmtNum(total)}*`;
+      const more = res.rows.length > 30 ? `\n…and ${res.rows.length - 30} more` : "";
+      return `${icon} *${cap(e.plural)} by ${plan.dim}*${who}${scopeLine}\n\n${lines.join("\n")}${more}\n\n*Total: ${fmtNum(total)}*`;
     }
     case "sum": {
       const r = res.rows[0] || {};
       const approved = plan.filters?.status?.label ? ` (${plan.filters.status.label})` : "";
-      return `💰 Total ${e.sumLabel || "amount"}${approved}${who}: *${fmtNum(r.total || 0)}* from *${fmtNum(r.n || 0)}* ${Number(r.n) === 1 ? "entry" : "entries"}${scopeLine}`;
+      return `💰 *Total ${e.sumLabel || "amount"}${approved}*${who}\n*${fmtNum(r.total || 0)}* from ${fmtNum(r.n || 0)} ${Number(r.n) === 1 ? "entry" : "entries"}${scopeLine}`;
     }
     case "avg": {
       const r = res.rows[0] || {};
-      if (!Number(r.n)) return `No ${res.label} recorded yet${who}.${scopeLine}`;
-      return `📊 Average ${res.label}${who}: *${fmtNum(r.avg)}* (lowest ${fmtNum(r.min)}, highest ${fmtNum(r.max)}, ${fmtNum(r.n)} records)${scopeLine}`;
+      if (!Number(r.n)) return `📊 No ${res.label} recorded yet${who}.${scopeLine}`;
+      return `📊 *Average ${res.label}*${who}: *${fmtNum(r.avg)}*\n⬇️ Lowest ${fmtNum(r.min)} · ⬆️ Highest ${fmtNum(r.max)} · ${fmtNum(r.n)} records${scopeLine}`;
     }
     case "top": {
-      if (!res.rows.length) return `No ${e.plural} found.${scopeLine}`;
-      const lines = res.rows.map((r, i) => `${i + 1}. ${r.name || "Unknown"} — *${fmtNum(r.v)}*`);
-      return `🏆 *Top ${res.rows.length}* by ${plan.entity === "earning" ? "earnings" : "score"}${scopeLine}\n${lines.join("\n")}`;
+      if (!res.rows.length) return `🏆 No ${e.plural} found.${scopeLine}`;
+      const medal = ["🥇", "🥈", "🥉"];
+      const lines = res.rows.map((r, i) => `${medal[i] || `*${i + 1}.*`} ${r.name || "Unknown"} — *${fmtNum(r.v)}*`);
+      return `🏆 *Top ${res.rows.length}* by ${plan.entity === "earning" ? "earnings" : "score"}${scopeLine}\n\n${lines.join("\n")}`;
     }
     case "current": {
       const r = res.rows[0];
-      if (!r) return "No batches found.";
-      return `📅 Current batch: *${r.batch}*${r.starts ? `\nStarts: ${String(r.starts).slice(0, 10)}` : ""}${r.ends ? `\nEnds: ${String(r.ends).slice(0, 10)}` : ""}`;
+      if (!r) return "📅 No batches found.";
+      return `📅 *Current batch: ${r.batch}*${r.starts ? `\n🟢 Starts: ${prettyValue(r.starts)}` : ""}${r.ends ? `\n🔴 Ends: ${prettyValue(r.ends)}` : ""}${r.description ? `\n_${prettyValue(r.description)}_` : ""}`;
     }
     case "details": {
       if (!res.rows.length) {
         const what = plan.ident ? `${plan.ident.type === "name" ? "name" : plan.ident.type.toUpperCase()} *${plan.ident.display}*` : "that";
-        return `No ${e.singular} found with ${what}. Please check it and try again.`;
+        return `🔍 No ${e.singular} found with ${what}.\nPlease check it and try again.`;
       }
-      const intro = res.fuzzy ? `No exact match for *${plan.ident.display}*. Closest ${res.rows.length > 1 ? "matches" : "match"}:
-
-` : "";
-      return intro + res.rows
-        .map((row) => {
-          const h = humanizeRow(row, { dict, entity: e });
-          const title = h.Name || h.name || h.Center || h.Batch || h.Course || cap(e.singular);
-          const lines = Object.entries(h)
-            .filter(([k, v]) => !isEmpty(v) && !["Name", "name"].includes(k))
-            .map(([k, v]) => `• *${k}:* ${String(v).length > 120 ? `${String(v).slice(0, 120)}…` : v}`);
-          const icon = ["student", "trainer", "candidate"].includes(plan.entity) ? "👤" : plan.entity === "center" ? "📍" : "📋";
-          return `${icon} *${title}*\n${lines.join("\n")}`;
-        })
-        .join("\n\n");
+      const intro = res.fuzzy ? `🔍 No exact match for *${plan.ident.display}*. Closest ${res.rows.length > 1 ? "matches" : "match"}:\n\n` : "";
+      return (
+        intro +
+        res.rows
+          .map((row) => {
+            const h = humanizeRow(row, { dict, entity: e });
+            const title = h.Name || h.name || h.Center || h.Batch || h.Course || cap(e.singular);
+            const lines = Object.entries(h)
+              .filter(([k, v]) => !isEmpty(v) && !["Name", "name"].includes(k) && String(v) !== String(title))
+              .map(([k, v]) => `${FIELD_ICON.find(([re]) => re.test(k))?.[1] || "▫️"} *${k}:* ${prettyValue(v)}`);
+            return `${icon} *${title}*\n━━━━━━━━━━━━\n${lines.join("\n")}`;
+          })
+          .join("\n\n")
+      );
     }
     case "list":
     default: {
-      if (!res.rows.length) return `No ${e.plural} found${who}.${scopeLine}`;
+      if (!res.rows.length) return `${icon} No ${e.plural} found${who}.${scopeLine}`;
       const lines = res.rows.slice(0, CHAT_LIST_ROWS).map((row, i) => {
         const h = humanizeRow(row, { dict, entity: e });
-        const vals = Object.values(h).filter((v) => !isEmpty(v)).map((v) => String(v).slice(0, 60));
-        return `${i + 1}. ${vals.join(" — ")}`;
+        const vals = Object.values(h)
+          .filter((v) => !isEmpty(v))
+          .map((v) => prettyValue(v));
+        const [first, ...rest] = vals;
+        return `*${i + 1}. ${first}*${rest.length ? `\n    ${rest.join(" · ")}` : ""}`;
       });
       const shown = Math.min(res.rows.length, CHAT_LIST_ROWS);
-      const head = `*${cap(e.plural)}*${who} (${res.total > shown ? `showing ${shown} of ${fmtNum(res.total)}` : fmtNum(res.total)})${scopeLine}`;
-      return `${head}\n${lines.join("\n")}`;
+      const count = res.total > shown ? `showing ${shown} of ${fmtNum(res.total)}` : fmtNum(res.total);
+      const more = res.total > shown && config.engine.autoExcel ? `\n\n📎 _Full list attached as Excel._` : "";
+      return `${icon} *${cap(e.plural)}*${who} (${count})${scopeLine}\n\n${lines.join("\n")}${more}`;
     }
   }
 }
+
 
 /** Short capability list for "help" and unknown questions. */
 export function helpText(entities) {

@@ -147,7 +147,7 @@ test("low-confidence and conflicting interpretations are not trusted automatical
   await answer("zara yeh wala hisaab dikhao jaldi", { schema, query: db.query, llm: llmMock([{ type: "data", op: "count", entity: "ticket", confidence: 0.3 }]) });
   assert.equal(L.listLearned().length, before, "confidence 0.3 is not saved");
   await answer("woh purana hisaab kitab dikhao", { schema, query: db.query, llm: llmMock([{ type: "data", op: "count", entity: "ticket", confidence: 0.7 }]) });
-  const pending = L.listLearned({ status: "pending" });
+  const pending = L.listLearned({ status: "pending", kind: "patterns" });
   assert.equal(pending.length, 1, "medium confidence is saved as pending");
   // pending patterns are not used
   const llm = llmMock([{ type: "data", op: "count", entity: "ticket", confidence: 0.7 }]);

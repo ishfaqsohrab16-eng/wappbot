@@ -3,6 +3,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { config } from "../config.js";
 import { log } from "../logger.js";
+import { isGenericKey } from "./parser.js";
 
 // Query patterns learned from successful LLM interpretations, stored on the app's
 // own data volume (never in the LMS database). A pattern is the normalized
@@ -11,6 +12,7 @@ import { log } from "../logger.js";
 
 const file = () => path.join(config.dataDir, "learned-queries.json");
 let entries = [];
+let words = []; // learned vocabulary: { id, word, entity, status, confidence, hits, ... }
 let loaded = false;
 let saveTimer = null;
 
@@ -23,7 +25,18 @@ function load() {
     if (fs.existsSync(file())) {
       const data = JSON.parse(fs.readFileSync(file(), "utf8"));
       entries = Array.isArray(data.entries) ? data.entries : [];
-      log.info(`Loaded ${entries.length} learned query patterns`);
+      words = Array.isArray(data.words) ? data.words : [];
+      // Self-healing: patterns with no data words ("what are you") are never trusted.
+      let fixed = 0;
+      for (const x of entries) {
+        if (x.status !== "disabled" && isGenericKey(x.key)) {
+          x.status = "disabled";
+          x.note = "auto-disabled: too generic";
+          fixed++;
+        }
+      }
+      if (fixed) save();
+      log.info(`Loaded ${entries.length} learned query patterns, ${words.length} learned words${fixed ? ` (${fixed} generic disabled)` : ""}`);
     }
   } catch (err) {
     log.error("Could not read learned-queries.json:", err.message);
@@ -34,7 +47,7 @@ function writeNow() {
   try {
     fs.mkdirSync(config.dataDir, { recursive: true });
     const tmp = `${file()}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify({ version: 1, entries }, null, 1));
+    fs.writeFileSync(tmp, JSON.stringify({ version: 2, entries, words }, null, 1));
     fs.renameSync(tmp, file());
   } catch (err) {
     log.error("Could not write learned-queries.json:", err.message);
@@ -61,7 +74,48 @@ export function flushLearned() {
 export function reloadLearned() {
   loaded = false;
   entries = [];
+  words = [];
   load();
+}
+
+/** Active learned words → entity, e.g. { talaba: "student" }. */
+export function learnedSynonyms() {
+  load();
+  const out = {};
+  for (const w of words) if (w.status === "active") out[w.word] = w.entity;
+  return out;
+}
+
+/**
+ * Learn that an unknown word means an entity ("talaba" → student). A word needs
+ * two independent confirmations unless the LLM was very sure.
+ */
+export function learnWord({ word, entity, confidence, example }) {
+  load();
+  const wd = String(word || "").toLowerCase();
+  if (!/^[a-z]{4,20}$/.test(wd) || confidence < config.engine.learnMinConfidence) return { saved: false };
+  const same = words.find((x) => x.word === wd && x.entity === entity);
+  if (same) {
+    same.confirmations = (same.confirmations || 0) + 1;
+    if (same.status === "pending" && same.confirmations >= 1) same.status = "active";
+    save();
+    return { saved: false, entry: same };
+  }
+  const conflict = words.some((x) => x.word === wd && x.status === "active");
+  const entry = {
+    id: crypto.randomBytes(4).toString("hex"),
+    word: wd,
+    entity,
+    status: !conflict && confidence >= Math.max(0.9, config.engine.learnActiveConfidence) ? "active" : "pending",
+    confidence: Math.round(confidence * 100) / 100,
+    source: "llm",
+    example: String(example || "").slice(0, 200),
+    confirmations: 0,
+    createdAt: new Date().toISOString(),
+  };
+  words.push(entry);
+  save();
+  return { saved: true, entry };
 }
 
 const sameMapping = (a, b) => a.op === b.op && a.entity === b.entity && (a.dim || null) === (b.dim || null);
@@ -111,6 +165,7 @@ export function touchLearned(entry) {
 export function learn({ key, mapping, confidence, source = "llm", example }) {
   load();
   if (!key || key.split(" ").length < 2 || key.length > 300) return { saved: false, reason: "too short/long" };
+  if (isGenericKey(key)) return { saved: false, reason: "too generic" };
   if (confidence < config.engine.learnMinConfidence) return { saved: false, reason: "low confidence" };
   const existing = entries.filter((x) => x.key === key);
   const same = existing.find((x) => sameMapping(x.mapping, mapping));
@@ -145,14 +200,21 @@ export function learn({ key, mapping, confidence, source = "llm", example }) {
   return { saved: true, entry };
 }
 
-export function listLearned({ status } = {}) {
+export function listLearned({ status, kind } = {}) {
   load();
-  return entries.filter((x) => !status || x.status === status);
+  const all = kind === "words" ? words.map((w) => ({ ...w, key: `word: ${w.word}`, mapping: { op: "word", entity: w.entity } })) : kind === "patterns" ? entries : [...entries, ...words.map((w) => ({ ...w, key: `word: ${w.word}`, mapping: { op: "word", entity: w.entity }, hits: w.hits || 0 }))];
+  return all.filter((x) => !status || x.status === status);
 }
 
 export function setLearnedStatus(id, status) {
   load();
   if (!STATUS.includes(status)) return { ok: false, error: "bad status" };
+  const w = words.find((e) => e.id === id);
+  if (w) {
+    w.status = status;
+    save();
+    return { ok: true, entry: w };
+  }
   const x = entries.find((e) => e.id === id);
   if (!x) return { ok: false, error: "not found" };
   if (status === "active") {
@@ -165,6 +227,12 @@ export function setLearnedStatus(id, status) {
 
 export function removeLearned(id) {
   load();
+  const wi = words.findIndex((e) => e.id === id);
+  if (wi >= 0) {
+    words.splice(wi, 1);
+    save();
+    return { ok: true };
+  }
   const i = entries.findIndex((e) => e.id === id);
   if (i < 0) return { ok: false, error: "not found" };
   entries.splice(i, 1);

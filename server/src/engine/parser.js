@@ -61,6 +61,24 @@ const DIM_RE = Object.fromEntries(
   ])
 );
 
+const REFER_LIST =
+  /\b(name them|list them|show them|send them|their names|names of (?:all )?(?:these|them|those|the above)|which (?:ones|are they)|kon kon|kaun kaun|konse hain|naam batao|naam bata|names please|the names|list of (?:these|them|those)|all of them|show all|give (?:me )?(?:the )?list)\b|^(names?|list|naam)$/;
+const OTHERS = /\b(others?|the rest|rest of (?:them|the)|remaining|baqi|baaqi|baki|everyone else|all other)\b/;
+
+/** Message that only makes sense with the previous question. */
+export function isFollowUpText(t) {
+  return /^(and|aur|what about|how about|or|also|same for|now|ab|sirf|only)\b/.test(t) || FOLLOW_REF.test(t) || REFER_LIST.test(t) || OTHERS.test(t);
+}
+
+/** A learned key with no data words in it ("what are you") is never trusted. */
+export function isGenericKey(key) {
+  const k = String(key || "");
+  if (/\{\w+\}/.test(k)) return false;
+  return !k
+    .split(/\s+/)
+    .some((w) => w.length >= 3 && !STOP.has(w) && !NOT_NAME.has(w) && !/^(you|your|are|what|who|how|why|when|where|there|doing)$/.test(w));
+}
+
 const FOLLOW_REF = /\b(his|her|their|uska|uski|uske|iska|iski|iske|is ka|us ka|unka|inka|this student|that student|same student|same person|is student|us student|wo|woh)\b/;
 const EXPORT = {
   excel: /\b(excel|xlsx|xls|sheet|spreadsheet|csv|export|download)\b/,
@@ -139,8 +157,14 @@ export function extractIdent(text) {
 }
 
 /** All entity mentions, longest phrase first. */
+let SYNONYMS = {}; // learned words → entity, set per parse
+
 function findEntities(t, entities) {
   const hits = [];
+  for (const [w, name] of Object.entries(SYNONYMS)) {
+    if (!entities[name] || !/^[a-z]+$/.test(w)) continue;
+    for (const m of t.matchAll(new RegExp(`\\b${w}\\b`, "g"))) hits.push({ name, len: w.length, pos: m.index, word: w, learned: true });
+  }
   for (const [name, e] of Object.entries(entities)) {
     for (const w of e.words) {
       const re = new RegExp(`\\b${w.replace(/ /g, "\\s+")}\\b`, "g");
@@ -152,12 +176,12 @@ function findEntities(t, entities) {
 
 // Words that are never part of a person's name.
 const NOT_NAME = new Set(
-  ("something anything nothing thing things stuff odd weird need want know check help idea question answer reply message good job nice great bad well done sorry okay yes no sure really very much more thanks thank welcome fine cool awesome perfect correct wrong right again try test testing hello there bye see later morning evening night weather time date day news price " +
+  ("others other rest remaining baqi baki these those them ones name names list naam you your yourself bot assistant something anything nothing thing things stuff odd weird need want know check help idea question answer reply message good job nice great bad well done sorry okay yes no sure really very much more thanks thank welcome fine cool awesome perfect correct wrong right again try test testing hello there bye see later morning evening night weather time date day news price " +
   "find search who whos kon kaun hai dhoond dhundo talash details information info profile about record named naam the ka ki ke ko please plz tell send give show get data full complete phone number contact email address father cnic roll rollno mobile whatsapp batch center course his her uska uski iska iski wala wali").split(" ")
 );
 
 function knownWords(entities) {
-  const known = new Set([...STOP, ...vocabulary(entities)]);
+  const known = new Set([...STOP, ...vocabulary(entities), ...Object.keys(SYNONYMS)]);
   for (const e of Object.values(entities)) for (const w of e.words) for (const p of w.split(" ")) known.add(p);
   for (const w of Object.values(DIM_WORDS).join("|").split("|")) for (const p of w.split(" ")) known.add(p);
   for (const re of Object.values(OP)) for (const m of String(re.source).match(/[a-z]{3,}/g) || []) known.add(m);
@@ -190,7 +214,8 @@ function pickEntity(t, entities, filters, dimPhrase) {
   if (mains.length) return { name: mains[0].name };
   const lookup = hits.find((h) => !usedAsFilter(h.name));
   if (lookup) return { name: lookup.name };
-  if (hits.length || GENDER_WORDS.test(t)) return { name: entities.student ? "student" : hits[0]?.name, defaulted: true };
+  if (hits.length || GENDER_WORDS.test(t) || (OP.count.test(t) && Object.keys(filters).length))
+    return { name: entities.student ? "student" : hits[0]?.name, defaulted: true };
   return { name: null };
 }
 
@@ -228,7 +253,8 @@ function pickOp(plan, e, t) {
  * Parse one message. dict = live dictionary, entities = active catalogue,
  * last = previous plan in this chat (for follow-ups).
  */
-export function parse(text, { dict, entities, last } = {}) {
+export function parse(text, { dict, entities, last, synonyms = {} } = {}) {
+  SYNONYMS = synonyms;
   const t = normalize(text, entities);
   const plan = { op: null, entity: null, dim: null, filters: {}, ident: null, limit: null, want: {}, text: t };
 
@@ -353,7 +379,22 @@ export function parse(text, { dict, entities, last } = {}) {
 
   // Follow-ups: "his attendance", "and batch 9?", "what about girls", "by center", "turbat"
   plan.followUp = false;
-  if (last?.entity) {
+  if (last?.entity && (!plan.entity || plan.entity === last.entity || defaulted) && (!plan.ident || plan.ident.type === "name")) {
+    // "name them", "give me names of all these" → list what was just counted
+    if (REFER_LIST.test(t)) {
+      Object.assign(plan, { entity: last.entity, op: "list", dim: null, filters: { ...(last.filters || {}), ...plan.filters }, ident: last.ident || null, followUp: true });
+      delete plan.lookupIds;
+    } else if (OTHERS.test(t)) {
+      // "what about others / the rest" → same question without its most specific filter
+      const f = { ...(last.filters || {}) };
+      const drop = ["center", "course", "district", "gender", "status", "qualification", "city", "platform", "type", "batch"].find((k) => f[k]);
+      if (drop) delete f[drop];
+      Object.assign(plan, { entity: last.entity, op: last.op, dim: last.dim, filters: { ...f, ...plan.filters }, ident: null, followUp: true });
+      if (drop && last.filters[drop]?.ids) plan.exclude = { [drop]: { ids: last.filters[drop].ids, label: last.filters[drop].label } };
+      delete plan.lookupIds;
+    }
+  }
+  if (last?.entity && !plan.followUp) {
     const startsLikeFollowUp = /^(and|aur|what about|how about|or|also|same for|now|ab|sirf|only)\b/.test(t);
     if (!plan.ident && FOLLOW_REF.test(t) && last.ident) {
       plan.ident = last.ident;

@@ -93,7 +93,7 @@ export const PHRASES = [
   ["kitne students present hain aaj", "count", "attendance", { filter: { status: "present", date: "today" } }],
   ["attendance breakdown this week", "count_by", "attendance", { dim: "status" }],
   ["attendence by center today", "count_by", "attendance", { dim: "center" }],
-  ["trainer attendance today", "count", "trainer_attendance", { filter: { date: "today" } }],
+  ["trainer attendance today", "list", "trainer_attendance", { filter: { date: "today" } }],
   // ---- admissions ----
   ["how many applicants admitted this month", "count", "candidate", { filter: { status: "admitted", date: "this month" } }],
   ["total applications", "count", "candidate"],

@@ -1,5 +1,5 @@
 import { log } from "../logger.js";
-import { scoreMatch, fold, ident } from "../db/catalog.js";
+import { scoreMatch, fold, ident, acronym } from "../db/catalog.js";
 import { LOOKUPS } from "./entities.js";
 
 // Real values from the database (batches, centers, courses, enum-like columns),
@@ -79,8 +79,17 @@ export function lookupName(d, kind, id) {
 // ---- resolvers ------------------------------------------------------------
 
 /** "batch 10", "b10", "10th batch", "current batch" → [{id,name}] */
+const NUM_WORDS = {
+  one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12,
+  first: 1, second: 2, third: 3, fourth: 4, fifth: 5, sixth: 6, seventh: 7, eighth: 8, ninth: 9, tenth: 10,
+  ek: 1, do: 2, teen: 3, char: 4, panch: 5, chay: 6, saat: 7, aath: 8, nau: 9, das: 10, dus: 10,
+};
+
 export function resolveBatch(d, text) {
-  const t = fold(text);
+  const t = fold(text).replace(
+    /\b(batch|btch|session)\s+(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|ek|do|teen|char|panch|chay|saat|aath|nau|das|dus)\b|\b(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)\s+(batch|session)\b/g,
+    (m, a, w1, w2, b) => (w1 ? `${a} ${NUM_WORDS[w1]}` : `batch ${NUM_WORDS[w2]}`)
+  );
   if (!d.batches.length) return null;
   if (/\b(current|running|ongoing|latest|present|this|abhi|new|newest|recent|chal rah[ai])\s+(batch|session|intake)\b/.test(t) || /\bbatch\s+(current|running|ongoing|latest)\b/.test(t)) {
     const b = d.batches.at(-1);
@@ -122,48 +131,100 @@ export function editDistance(a, b) {
   return m[b.length][a.length];
 }
 
-function fuzzyPick(list, text, fields, { min = 80 } = {}) {
-  const t = fold(text);
-  const words = t.split(" ");
-  const grams = new Set();
-  for (let n = 1; n <= 4; n++) for (let i = 0; i + n <= words.length; i++) grams.add(words.slice(i, i + n).join(" "));
-  const scored = [];
-  for (const item of list) {
-    let best = 0;
-    for (const f of fields) {
-      const v = item[f];
-      if (!v) continue;
-      const fv = fold(v);
-      if (fv.length >= 3 && new RegExp(`\\b${fv.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(t)) best = Math.max(best, 100);
-      for (const g of grams) {
-        if (g.length < 3 || g.split(" ").every((w) => GENERIC.has(w) || GENERIC.has(w.replace(/s$/, "")) || COMMON.has(w) || /^\d+$/.test(w))) continue;
-        best = Math.max(best, scoreMatch(g, v));
-      }
-      // Typos across the whole name: "web devlopment" ~ "Web Development"
-      for (const g of grams) {
-        if (g.length < 5 || Math.abs(g.length - fv.length) > 3) continue;
-        const sim = 1 - editDistance(g, fv) / Math.max(g.length, fv.length);
-        if (sim >= 0.85) best = Math.max(best, Math.round(70 + sim * 20));
-      }
-      // Typos inside one word: "quetaa" ~ "Quetta", "itii" ~ "ITTI"
-      for (const vw of fv.split(" ").filter((x) => x.length >= 4 && !GENERIC.has(x))) {
-        for (const w of words) {
-          if (w.length < 4 || Math.abs(w.length - vw.length) > 2) continue;
-          const sim = 1 - editDistance(w, vw) / Math.max(w.length, vw.length);
-          if (sim >= 0.8) best = Math.max(best, Math.round(70 + sim * 20));
-        }
-      }
+// Gender words are filters, not parts of a place/course name ("girls in quetta").
+const FILTER_WORDS = new Set("girls girl boys boy female females male males women men ladies larki larkiyan larkay larke".split(" "));
+
+/** City part of an address: "…, Quetta" → "quetta"; short values are used whole. */
+function cityOf(v) {
+  const s = String(v || "");
+  if (s.includes(",")) return fold(s.slice(s.lastIndexOf(",") + 1));
+  const f = fold(s);
+  return f.split(" ").length <= 2 ? f : f.split(" ").at(-1);
+}
+
+function wordMatch(w, vw) {
+  if (w === vw) return true;
+  if (w.length < 3 || vw.length < 3 || w[0] !== vw[0] || Math.abs(w.length - vw.length) > 2) return false;
+  const d = editDistance(w, vw);
+  return vw.length <= 5 ? d <= 1 : d <= 2;
+}
+
+/** Old-style phrase score (whole name, acronyms, compact spelling) for ranking and fallback. */
+function phraseScore(fv, v, t, grams) {
+  let best = 0;
+  if (fv.length >= 3 && new RegExp(`\\b${fv.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(t)) best = 100;
+  for (const g of grams) {
+    // Skip phrases with no real content ("center", "students center"); allow
+    // multi-word generic names ("university of balochistan", "girls college").
+    const content = g.split(" ").filter((w) => !COMMON.has(w) && !/^\d+$/.test(w));
+    if (g.length < 3 || !content.length || (content.length === 1 && (GENERIC.has(content[0]) || GENERIC.has(content[0].replace(/s$/, "")) || FILTER_WORDS.has(content[0])))) continue;
+    best = Math.max(best, scoreMatch(g, v));
+    // "university of balochistan" → "UoB"; "mir chakar khan rind university" → "MCKRU"
+    const ac = acronym(g);
+    if (content.length >= 2 && ac.length >= 3 && ac === fv.replace(/ /g, "")) best = Math.max(best, 96);
+    // A multi-word phrase inside a longer name/address
+    if (content.length >= 2 && ` ${fv} `.includes(` ${g} `)) best = Math.max(best, 92);
+    if (g.length >= 5 && Math.abs(g.length - fv.length) <= 3) {
+      const sim = 1 - editDistance(g, fv) / Math.max(g.length, fv.length);
+      if (sim >= 0.85) best = Math.max(best, Math.round(70 + sim * 20));
     }
-    if (best >= min) scored.push({ item, score: best });
   }
-  if (!scored.length) return [];
-  scored.sort((a, b) => b.score - a.score);
-  const top = scored[0].score;
-  return scored.filter((s) => s.score >= top - 3).map((s) => s.item);
+  return best;
+}
+
+/**
+ * Pick the records a message refers to. Every meaningful word narrows the set of
+ * records it can belong to; the answer is the records that fit ALL such words
+ * ("iti qta" → ITTI ∩ Quetta = "ITTI Pishin Stop QTA"; "quetta" → every Quetta
+ * center). Ties are broken by how well the whole phrase matches. Works the same
+ * for centers, courses, districts, cities and platforms.
+ * fields[0] is the name; `cityFields` are addresses where only the city counts.
+ */
+function fuzzyPick(list, text, fields, { min = 80, cityFields = [] } = {}) {
+  const t = fold(text);
+  const all = t.split(" ");
+  const grams = new Set();
+  for (let n = 1; n <= 4; n++) for (let i = 0; i + n <= all.length; i++) grams.add(all.slice(i, i + n).join(" "));
+  const vocab = list.map((item) => {
+    const ws = new Set();
+    for (const f of fields) {
+      if (!item[f]) continue;
+      const src = cityFields.includes(f) ? cityOf(item[f]) : fold(item[f]);
+      for (const w of src.split(" ")) if (w.length >= 2 && !GENERIC.has(w)) ws.add(w);
+    }
+    return [...ws];
+  });
+  const words = [...new Set(all.filter((w) => w.length >= 2 && !COMMON.has(w) && !GENERIC.has(w) && !FILTER_WORDS.has(w) && !/^\d+$/.test(w)))];
+  const sets = [];
+  for (const w of words) {
+    const idx = [];
+    vocab.forEach((vs, i) => {
+      if (vs.some((vw) => wordMatch(w, vw))) idx.push(i);
+    });
+    if (idx.length && idx.length < list.length) sets.push(idx);
+  }
+  const phrase = (i) => Math.max(...fields.map((f, k) => (list[i][f] ? phraseScore(fold(list[i][f]), list[i][f], t, grams) - (k === 0 ? 0 : 4) : 0)));
+
+  let cand = null;
+  if (sets.length) {
+    let inter = sets[0];
+    for (const s of sets.slice(1)) {
+      const next = inter.filter((i) => s.includes(i));
+      if (next.length) inter = next; // ignore a word that would rule everything out
+    }
+    cand = inter;
+  } else {
+    cand = list.map((_, i) => i).filter((i) => phrase(i) >= min);
+  }
+  if (!cand.length) return [];
+  // Prefer an exact phrase hit ("university of balochistan") when one stands out.
+  const scored = cand.map((i) => ({ i, s: phrase(i) })).sort((a, b) => b.s - a.s);
+  if (scored[0].s >= 95 && (scored.length === 1 || scored[1].s < scored[0].s - 5)) return [list[scored[0].i]];
+  return scored.map((x) => list[x.i]);
 }
 
 export function resolveCenter(d, text) {
-  const hits = fuzzyPick(d.centers, text, ["name", "location"], { min: 82 });
+  const hits = fuzzyPick(d.centers, text, ["name", "location"], { min: 82, cityFields: ["location"] });
   return hits.length ? { ids: hits.map((c) => c.id), label: hits.map((c) => c.name).join(", ") } : null;
 }
 

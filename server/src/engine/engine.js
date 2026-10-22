@@ -2,9 +2,11 @@ import { config } from "../config.js";
 import { log } from "../logger.js";
 import { activeEntities } from "./entities.js";
 import { getDictionary, resolveBatch, resolveCenter, resolveCourse, resolveEnum, resolveDate } from "./dictionary.js";
-import { parse, slotKey, extractIdent } from "./parser.js";
+import { parse, slotKey, extractIdent, isFollowUpText, isGenericKey } from "./parser.js";
 import { execute, formatReply, helpText, humanizeRow, filterSummary, CHAT_LIST_ROWS } from "./executor.js";
-import { findLearned, learn, touchLearned } from "./learned.js";
+import { findLearned, learn, touchLearned, learnedSynonyms, learnWord } from "./learned.js";
+import { editDistance } from "./dictionary.js";
+import { fold } from "../db/catalog.js";
 import { excelFile, chartFile, wordFile } from "./files.js";
 
 // Deterministic query engine. Order: learned pattern → rules → LLM classification
@@ -101,14 +103,33 @@ function parseJson(s) {
   }
 }
 
-/** Turn the LLM's loose JSON into a validated plan, re-using values the rules already found. */
-function planFromLlm(j, base, { dict, entities }) {
+/** True when a value the LLM proposes is actually in the user's message (typos allowed). */
+function inMessage(value, text) {
+  const words = fold(text).split(" ");
+  return fold(value)
+    .split(" ")
+    .filter((w) => w.length >= 3 || /^\d+$/.test(w))
+    .some((w) => words.some((x) => x === w || (w.length >= 4 && x.length >= 4 && editDistance(x, w) <= 2)));
+}
+
+/**
+ * Turn the LLM's loose JSON into a plan, re-using values the rules already found.
+ * Values (filters, CNIC, names) are only accepted if they appear in the current
+ * message, or the message clearly refers back to the previous question — the
+ * model must not copy them from the chat history on its own.
+ */
+function planFromLlm(j, base, { dict, entities, text, last }) {
   const plan = { ...base, op: j.op, entity: j.entity, dim: j.dim || null, filters: { ...base.filters }, limit: j.limit || base.limit };
   const e = entities[plan.entity];
   if (!e) return null;
+  const refersBack = Boolean(last) && isFollowUpText(base.text);
   const f = j.filters && typeof j.filters === "object" ? j.filters : {};
   for (const [k, raw] of Object.entries(f)) {
     if (plan.filters[k] || raw === null || raw === "") continue;
+    if (!inMessage(raw, text) && !(k === "date" && /\b(today|aaj|yesterday|kal|week|month|year|mahine|hafte)\b/.test(base.text))) {
+      if (refersBack && last.filters?.[k]) plan.filters[k] = last.filters[k];
+      continue;
+    }
     const v = String(raw).toLowerCase();
     let r = null;
     if (k === "batch") r = resolveBatch(dict, /\d/.test(v) && !/batch/.test(v) ? `batch ${v}` : `${v} batch`);
@@ -119,7 +140,14 @@ function planFromLlm(j, base, { dict, entities }) {
     if (r) plan.filters[k] = r;
   }
   if (!plan.ident && j.ident?.value && ["cnic", "rollno", "phone", "name", "email"].includes(j.ident.type)) {
-    plan.ident = extractIdent(String(j.ident.value)) || (j.ident.type === "name" ? { type: "name", value: String(j.ident.value).toLowerCase().slice(0, 60), display: String(j.ident.value).slice(0, 60) } : null);
+    const v = String(j.ident.value);
+    const digits = v.replace(/\D/g, "");
+    const present = digits.length >= 7 ? text.replace(/\D/g, "").includes(digits) : inMessage(v, text);
+    if (present) {
+      plan.ident = extractIdent(v) || (j.ident.type === "name" ? { type: "name", value: v.toLowerCase().slice(0, 60), display: v.slice(0, 60) } : null);
+    } else if (refersBack && last.ident) {
+      plan.ident = last.ident;
+    }
   }
   return plan;
 }
@@ -173,7 +201,8 @@ export async function answer(text, ctx) {
   const entities = engineEntities(ctx.schema);
   const dict = await getDictionary(entities, ctx.query);
   const out = { handled: false, files: [], llmCalls: 0, source: null };
-  let plan = parse(text, { dict, entities, last: ctx.last });
+  let plan = parse(text, { dict, entities, last: ctx.last, synonyms: learnedSynonyms() });
+  const base = plan;
   const key = slotKey(plan);
   plan.key = key;
 
@@ -236,7 +265,10 @@ export async function answer(text, ctx) {
           source: "llm",
         };
       }
-      const p = planFromLlm(llmJson, plan, { dict, entities });
+      // Nothing data-like in the message ("what are you?"): never run a lookup.
+      const meaningful = plan.entity || Object.keys(plan.filters).length || plan.ident || plan.unknown?.length;
+      if (!meaningful) return { ...out, handled: false, chat: true, reply: "", plan };
+      const p = planFromLlm(llmJson, plan, { dict, entities, text, last: ctx.last });
       if (p) {
         plan = p;
         out.source = "llm";
@@ -281,9 +313,20 @@ export async function answer(text, ctx) {
   const files = await buildFiles(plan, res, { entities, dict, query: ctx.query, replyText: reply });
 
   // Learn: the LLM's interpretation worked, so remember the phrasing.
-  if (out.source === "llm" && !res.meta?.studentNotFound) {
-    const r = learn({ key, mapping: plan, confidence: out.llmConfidence ?? 0, example: text });
+  const found = ["count", "count_by", "sum", "avg"].includes(plan.op) || res.rows?.length;
+  if (out.source === "llm" && found && !res.meta?.studentNotFound && !isGenericKey(key)) {
+    const conf = out.llmConfidence ?? 0;
+    const r = learn({ key, mapping: plan, confidence: conf, example: text });
     if (r.saved) log.info(`Learned pattern ${r.entry.id} [${r.entry.status}]: "${key}" → ${plan.op}/${plan.entity}${plan.dim ? `/${plan.dim}` : ""}`);
+    // Learn the unknown words too, so other sentences using them work without the LLM.
+    if (base.entity !== plan.entity && plan.ident?.type !== "name") {
+      // Only when exactly one word was unknown: that word must be what the LLM understood.
+      const unknownWords = (base.unknown || []).filter((x) => /^[a-z]{4,}$/.test(x));
+      for (const w of unknownWords.length === 1 ? unknownWords : []) {
+        const lw = learnWord({ word: w, entity: plan.entity, confidence: conf, example: text });
+        if (lw.saved) log.info(`Learned word "${w}" → ${plan.entity} [${lw.entry.status}]`);
+      }
+    }
   }
 
   return {

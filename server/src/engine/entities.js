@@ -345,6 +345,7 @@ export const ENTITIES = {
     date: "ta.ta_date",
     list: ["u.user_name AS trainer", "ta.ta_date AS date", "ta.checkin_time AS check_in", "ta.checkout_time AS check_out", "ta.center_id"],
     order: "ta.ta_date DESC",
+    defaultOp: "list",
     key: "ta.ta_id",
   },
   quiz_attempt: {

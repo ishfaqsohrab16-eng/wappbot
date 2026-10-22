@@ -187,7 +187,7 @@ Tables: `daily_lecture_reports` · Filters: batch, center, course, date · Break
 
 Tables: `trainer_attendance`, `user` · Filters: batch, center, date · Breakdowns: batch, center
 
-- trainer attendance today → `count`
+- trainer attendance today → `list`
 
 ### quiz_attempt
 

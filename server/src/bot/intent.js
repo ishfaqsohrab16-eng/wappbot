@@ -37,6 +37,17 @@ const CANNED = [
   },
   { re: /^(ok+|okay|okk+|k|acha|achha|theek hai|thik hai|fine|great|nice|good|cool|👍)$/, en: "👍 Let me know if you need anything else." },
   {
+    re: /^((what|who) (are|r) (you|u)( exactly)?|what is this( bot)?|whats your name|what is your name|your name|who (made|built|created|developed) you|are you (a )?(bot|human|ai|robot)|tum kon ho|tum kaun ho|ap kon ho|aap kon ho|aap kaun hain|ap kaun ho|tumhara naam kya hai|aap ka naam|introduce yourself|آپ کون ہیں)$/,
+    en:
+      "🤖 I'm *DigiBizz Assistant*, the LMS data bot.\n\nAsk me about *students, batches, centers, courses, trainers, attendance, admissions, earnings, tickets, results* — in English, Urdu or Roman Urdu, by text or voice. I can also send *charts, Excel sheets and Word reports*.\n\nTry: _how many students in batch 10_ · _students by center_ · _54401-1234567-1_",
+    ur: "🤖 میں *DigiBizz Assistant* ہوں — LMS ڈیٹا بوٹ۔ آپ طلبہ، بیچز، سینٹرز، کورسز، ٹرینرز اور حاضری کے بارے میں پوچھ سکتے ہیں۔",
+  },
+  {
+    re: /^(what can you do|what do you do|how can you help|how to use|kya kar sakte ho|kya kar sakti ho|ap kya kar sakte hain|aap kya kar sakte hain)$/,
+    en:
+      "📋 I can:\n• *Count* — how many students in batch 10?\n• *Break down* — students by center / gender wise\n• *List* — trainers in ITTI Zhob\n• *Look up* — a CNIC, roll number, phone or name\n• *Attendance* — absent students today\n• *Admissions, earnings, tickets, results, holidays, schedules*\n• *Files* — add _excel_, _chart_ or _word report_\n\nFollow-ups work too: _and batch 9?_ · _what about girls_ · _name them_",
+  },
+  {
     re: /^(bye|goodbye|good night|allah hafiz|khuda hafiz|اللہ حافظ|خدا حافظ)$/,
     en: "Allah Hafiz! 👋 Message me anytime you need data.",
     ur: "اللہ حافظ! 👋",

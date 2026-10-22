@@ -13,6 +13,7 @@ import { canSpeak, synthesize } from "../tts/speak.js";
 const rateLimiter = createRateLimiter({ limit: config.llm.rateLimitPerMin });
 const seen = new Map(); // message id -> time, to drop webhook retries
 const chains = new Map(); // phone -> promise, one message at a time per user
+const recentTexts = new Map(); // "phone|text" -> time, drops duplicate deliveries
 const deniedNotified = new Map(); // phone -> time of last "not authorized" reply
 const MAX_AGE_SEC = 300;
 
@@ -21,6 +22,7 @@ setInterval(() => {
   for (const [id, t] of seen) if (t < cutoff) seen.delete(id);
   const dayAgo = Date.now() - 24 * 3600_000;
   for (const [p, t] of deniedNotified) if (t < dayAgo) deniedNotified.delete(p);
+  for (const [s, t] of recentTexts) if (t < cutoff) recentTexts.delete(s);
 }, 60_000).unref();
 
 /** Work out the sender's real phone number, also for @lid chats. */
@@ -110,6 +112,15 @@ export function handleIncoming(data, instance) {
         sendText(replyTo, config.unauthorizedReply).catch((e) => log.warn("deny reply failed:", e.message));
       }
       return;
+    }
+
+    // Same text from the same person within a few seconds = a duplicate delivery
+    // (Evolution can send one message twice under different ids). Answer once.
+    if (content.kind === "text") {
+      const sig = `${phone}|${content.text.trim().toLowerCase()}`;
+      const at = recentTexts.get(sig);
+      if (at && Date.now() - at < 8000) return;
+      recentTexts.set(sig, Date.now());
     }
 
     const prev = chains.get(phone) || Promise.resolve();

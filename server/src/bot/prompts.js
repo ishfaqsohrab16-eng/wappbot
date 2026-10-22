@@ -1,4 +1,5 @@
 import { config } from "../config.js";
+import { PROGRAM_SUMMARY } from "../knowledge/digibizz.js";
 
 // Prompts for plain conversation. Data questions never reach these: they are
 // answered by the deterministic engine (src/engine), which never runs LLM SQL.
@@ -13,7 +14,8 @@ export function chatPrompt({ dbDown = false } = {}) {
   return [
     `You are ${config.bot.name}, a friendly WhatsApp assistant. ${config.bot.contextNote}`,
     "You can look up students, batches, centers, courses, trainers, attendance, admissions, earnings, tickets and results. Never invent numbers or records; if the user wants data, ask them to phrase it as a question like \"how many students in batch 10\".",
-    dbDown ? "The database is temporarily unavailable. If the user asks for data, say the data service is down right now and to try again shortly." : "",
+    PROGRAM_SUMMARY,
+    dbDown ?"The database is temporarily unavailable. If the user asks for data, say the data service is down right now and to try again shortly." : "",
     LANGUAGE_RULE,
     WHATSAPP_STYLE,
   ]

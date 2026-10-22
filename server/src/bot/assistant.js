@@ -11,6 +11,8 @@ import { engineEntities } from "../engine/engine.js";
 import { smallTalkReply, looksLikeDataQuestion } from "./intent.js";
 import { transcript } from "./context.js";
 import * as P from "./prompts.js";
+import { knowledgeAnswer } from "../knowledge/digibizz.js";
+import { extractIdent } from "../engine/parser.js";
 
 // Swappable for tests.
 let deps = { chat, streamChat, getSchema, runQuery };
@@ -74,6 +76,13 @@ export async function runAssistant(p) {
   if (canned) {
     p.onToken?.(canned);
     return finish({ action: "reply", reply: canned, source: "canned" });
+  }
+
+  // General questions about the DigiBizz program (fee, stipend, eligibility, …)
+  const kb = knowledgeAnswer(text, { hasIdent: Boolean(extractIdent(text)) });
+  if (kb) {
+    p.onToken?.(kb.answer);
+    return finish({ action: "reply", reply: kb.answer, source: `knowledge:${kb.id}` });
   }
 
   const history = getHistory(key);
