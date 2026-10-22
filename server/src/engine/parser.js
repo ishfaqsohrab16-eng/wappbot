@@ -29,7 +29,7 @@ const SPELL = {
   totl: "total", totel: "total", ttl: "total",
   avrage: "average", avg: "average", averge: "average",
   vise: "wise", vize: "wise", wais: "wise", waise: "wise", summed: "sum", summ: "sum", ernings: "earnings", earnig: "earning",
-  andget: "and get", schedul: "schedule", scheduls: "schedules", shedule: "schedule", sheduls: "schedules", schedual: "schedule",
+  andget: "and get", tadays: "today", tadey: "today", todys: "today", toady: "today", schedul: "schedule", scheduls: "schedules", shedule: "schedule", sheduls: "schedules", schedual: "schedule",
   organisation: "organization", organiztion: "organization", orginization: "organization",
   qta: "quetta", qetta: "quetta", kwetta: "quetta", khi: "karachi", lhr: "lahore", isb: "islamabad",
 };
@@ -39,7 +39,7 @@ const OP = {
   avg: /\b(average|mean|ausat|avg)\b/,
   top: /\b(top|highest|best|most|maximum|toppers?|leaders?|leaderboard|sab se zyada|zyada se zyada|rank(?:ing)?)\b/,
   sum: /\b(sum|sums|sum up|add up|amount|amounts|how much|kitne paise|kitni raqam|raqam|total earnings?|total amount|total income|kamai|jama|figure)\b/,
-  late: /\b(late|latecomers?|der se|on time|ontime|punctual\w*|delay(?:ed)?|match(?: \w+){0,3} (?:with )?(?:the )?(?:class )?schedules?|compare(?: \w+){0,3} (?:with )?(?:the )?(?:class )?schedules?)\b/,
+  late: /\b(late|latecomers?|der se|left early|leaves? early|leaving early|went early|early leav\w*|left before|checked out early|early check ?out|jaldi (?:chal[ae] gay?[ae]|nikal\w*|chutti)|on time|ontime|punctual\w*|delay(?:ed)?|match(?: \w+){0,3} (?:with )?(?:the )?(?:class )?schedules?|compare(?: \w+){0,3} (?:with )?(?:the )?(?:class )?schedules?)\b/,
   count: /\b(how many|count|number of|no of|total|tadad|tadaad|ginti|kitne|quantity|qty)\b/,
   details: /\b(details|information|info|profile|record|about|maloomat|tafseel|data of|full data|complete data|bio)\b/,
   list: /\b(list|show|display|names?|who|kon|kaun|konsa|konse|kon kon|dikhao|dikha|batao|bata|give|send|share|all|sab|sare|saray|which|kis|kin)\b/,
@@ -190,7 +190,10 @@ const NOT_NAME = new Set(
   "find search who whos kon kaun hai dhoond dhundo talash details information info profile about record named naam the ka ki ke ko please plz tell send give show get data full complete phone number contact email address father cnic roll rollno mobile whatsapp batch center course his her uska uski iska iski wala wali " +
   "match both compare late early ontime punctual class classes ma mai main to ni nai nahi nahin tha thi thay aaj kal abhi koi sab tamam sare kitne kitni " +
   "org organization organisation company institute program programme project department team office website your our yours ours man bro dude yaar buddy " +
-  "there their sum summed amount amounts approved figure total yes haan han ji jee no nope wrong galat correct sahi meant mean said asked").split(" ")
+  "there their sum summed amount amounts approved figure total yes haan han ji jee no nope wrong galat correct sahi meant mean said asked " +
+  "zara zra jaldi fatafat bhai bhae yar yaar janab jee ji sahab sb plz " +
+  "anyone anybody someone somebody everyone everybody nobody none koi kisi kaun kon " +
+  "left early came come went leave leaving response responses reply answer incorrect today todays was were who whom which lecture").split(" ")
 );
 
 function knownWords(entities) {
@@ -340,7 +343,8 @@ export function parse(text, { dict, entities, last, synonyms = {} } = {}) {
   // "late" attendance status, so only when no student word is used.
   if (entities.trainer_attendance && entities.schedule && OP.late.test(t) && !/\b(students?|learners?|trainees?)\b/.test(t)) {
     const trainerTalk = /\b(trainer|teacher|instructor)s?\b/.test(t) || ["trainer", "trainer_attendance", "schedule"].includes(last?.entity);
-    if (trainerTalk || !plan.entity || plan.entity === "schedule") {
+    const leftEarly = /\b(left|leav\w*|went|go|gone) early\b|\bearly leav/.test(t);
+    if (trainerTalk || !plan.entity || plan.entity === "schedule" || (leftEarly && ["leave", "trainer_leave"].includes(plan.entity))) {
       if (["trainer_attendance", "schedule"].includes(last?.entity)) plan.filters = { ...(last.filters || {}), ...plan.filters };
       plan.entity = "trainer_attendance";
       plan.op = "late";

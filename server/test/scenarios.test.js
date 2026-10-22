@@ -204,9 +204,9 @@ test("read-only, injection and nonsense are handled safely", async () => {
 
 test("unknown phrasing uses the LLM once, then is learned", async () => {
   const llm = [{ type: "data", op: "count", entity: "student", confidence: 0.93 }];
-  const [first] = await converse([["zara talib-e-ilmon ki tadaad batao mujhe abhi abhi jaldi"]], { llm });
+  const [first] = await converse([["woh fehrist wale talib-e-ilmon ka hisaab fatafat"]], { llm });
   assert.equal(first.llmCalls, 1);
-  const [again] = await converse([["zara talib-e-ilmon ki tadaad batao mujhe abhi abhi jaldi"]]);
+  const [again] = await converse([["woh fehrist wale talib-e-ilmon ka hisaab fatafat"]]);
   assert.equal(again.llmCalls || 0, 0, "second time is learned");
   assert.match(again.reply, /4,505/);
 });

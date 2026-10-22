@@ -247,9 +247,19 @@ export function rejectLearned(id, note = "user said the answer was wrong") {
   const x = entries.find((e) => e.id === id);
   if (!x) return null;
   x.rejections = (x.rejections || 0) + 1;
-  if (x.status === "pending" || x.rejections > (x.userConfirmed || 0)) Object.assign(x, { status: "disabled", note });
+  if (x.status === "pending" || x.rejections > (x.userConfirmed || 0)) {
+    Object.assign(x, { status: "disabled", note });
+    // Words learned from the same wrong answer go too (unless users confirmed them since).
+    for (const w of words) if ((x.wordIds || []).includes(w.id) && !w.userConfirmed) Object.assign(w, { status: "disabled", note });
+  }
   save();
   return x;
+}
+
+/** Remember that `word` was learned from the same LLM answer as `entry`. */
+export function linkWord(entry, word) {
+  entry.wordIds = [...new Set([...(entry.wordIds || []), word.id])];
+  save();
 }
 
 export function listLearned({ status, kind } = {}) {

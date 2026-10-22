@@ -194,14 +194,28 @@ async function lateCheck(plan, { entities, query }) {
     const today = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`;
     plan.filters = { ...plan.filters, date: { from: today, to: today, label: "today" } };
   }
-  let w = where(e, plan);
-  if (plan.ident?.type === "name") w = addWhere(w, identClause("u.user_name", plan.ident));
-  const checkins = await run(
-    query,
-    `SELECT ta.t_id, u.user_name AS trainer, ta.ta_date AS date, ta.checkin_time AS check_in, ta.checkout_time AS check_out, ta.center_id, ta.tb_id, t.t_course_id AS course_id FROM ${e.from}${w.sql} ORDER BY ta.ta_date DESC, ta.checkin_time LIMIT 500`,
-    w.params,
-    500
-  );
+  const fetchCheckins = (p) => {
+    let w = where(e, p);
+    if (p.ident?.type === "name") w = addWhere(w, identClause("u.user_name", p.ident));
+    return run(
+      query,
+      `SELECT ta.t_id, u.user_name AS trainer, ta.ta_date AS date, ta.checkin_time AS check_in, ta.checkout_time AS check_out, ta.center_id, ta.tb_id, t.t_course_id AS course_id FROM ${e.from}${w.sql} ORDER BY ta.ta_date DESC, ta.checkin_time LIMIT 500`,
+      w.params,
+      500
+    );
+  };
+  let checkins = await fetchCheckins(plan);
+  // Words read as a name that belong to no trainer ("asked tadays left") → everyone.
+  let ignoredName = null;
+  if (plan.ident?.type === "name" && !checkins.length && entities.trainer) {
+    const c = identClause("u.user_name", plan.ident);
+    const known = await run(query, `SELECT u.user_name AS name FROM ${entities.trainer.from} WHERE ${c.sql} LIMIT 1`, c.params, 1);
+    if (!known.length) {
+      ignoredName = plan.ident.display;
+      plan.ident = null;
+      checkins = await fetchCheckins(plan);
+    }
+  }
   const tIds = [...new Set(checkins.map((r) => r.t_id))];
   const single = plan.filters.date.from === plan.filters.date.to;
 
@@ -276,7 +290,15 @@ async function lateCheck(plan, { entities, query }) {
       minutes = inAt - start;
       status = !isClassDay(s.days, r.date) ? "no_class_day" : minutes > lateGrace() ? "late" : "on_time";
     }
-    return { trainer: r.trainer, date: ymd(r.date), check_in: hhmm(inAt), check_out: r.check_out ? hhmm(clockMinutes(r.check_out)) : null, class_start: s?.start_time ?? null, minutes_late: minutes, status, center_id: r.center_id, course_id: s?.course_id ?? r.course_id };
+    // Checked out before the class ended (no check-out yet = still there, not early).
+    const outAt = clockMinutes(r.check_out);
+    const end = s ? clockMinutes(s.end_time) : null;
+    const leftEarly = status !== "no_class_day" && outAt !== null && end !== null && outAt < end - lateGrace() ? end - outAt : null;
+    return {
+      trainer: r.trainer, date: ymd(r.date), check_in: hhmm(inAt), check_out: outAt === null ? null : hhmm(outAt),
+      class_start: s?.start_time ?? null, class_end: s?.end_time ?? null, minutes_late: minutes, left_early: leftEarly,
+      status, center_id: r.center_id, course_id: s?.course_id ?? r.course_id,
+    };
   });
 
   // Expected that day (allocated, class day, schedule found) but no check-in.
@@ -293,7 +315,7 @@ async function lateCheck(plan, { entities, query }) {
       missing.push({ trainer: a.trainer, center_id: a.center_id, course_id: a.course_id, class_start: s.start_time });
     }
   }
-  return { rows, missing };
+  return { rows, missing, ignoredName };
 }
 
 const LATE_LIST = 25;
@@ -307,6 +329,9 @@ function formatLate(plan, res, { dict }) {
   const onTime = by("on_time");
   const noSched = by("no_schedule");
   const offDay = by("no_class_day");
+  const early = res.rows.filter((r) => r.left_early).sort((a, b) => b.left_early - a.left_early);
+  const clsEnd = (r) => (r.class_end ? prettyValue(r.class_end) : "—");
+  const leftNote = (r) => (r.left_early ? `\n    🏃 left *${r.left_early} min early* — out ${r.check_out}, class ends ${clsEnd(r)}` : "");
 
   if (plan.ident) {
     if (!res.rows.length) return `🔍 No check-in found for *${plan.ident.display}* ${when}.\n_Either they didn't check in, or the name is spelled differently — try_ _trainer attendance ${when}_.`;
@@ -314,9 +339,9 @@ function formatLate(plan, res, { dict }) {
       .slice(0, 10)
       .map((r) => {
         const head = `*${r.trainer}*${res.rows.length > 1 || when !== "today" ? ` · ${prettyValue(r.date)}` : ""}`;
-        if (r.status === "late") return `⏰ ${head} was *${r.minutes_late} min late* — checked in ${r.check_in}, class starts ${cls(r)}\n    ${place(r)}`;
+        if (r.status === "late") return `⏰ ${head} was *${r.minutes_late} min late* — checked in ${r.check_in}, class starts ${cls(r)}${leftNote(r)}\n    ${place(r)}`;
         if (r.status === "on_time")
-          return `✅ ${head} was *on time* — checked in ${r.check_in}, class starts ${cls(r)}${r.minutes_late < 0 ? ` (${-r.minutes_late} min early)` : ""}\n    ${place(r)}`;
+          return `✅ ${head} was *on time* — checked in ${r.check_in}, class starts ${cls(r)}${r.minutes_late < 0 ? ` (${-r.minutes_late} min early)` : ""}${leftNote(r)}\n    ${place(r)}`;
         if (r.status === "no_class_day") return `📅 ${head} checked in ${r.check_in}, but the schedule has no class that day\n    ${place(r)}`;
         return `❔ ${head} checked in ${r.check_in} — no class schedule found for ${place(r) || "their center"}`;
       })
@@ -324,7 +349,11 @@ function formatLate(plan, res, { dict }) {
   }
 
   if (!res.rows.length && !res.missing.length) return `🕒 No trainer check-ins ${when}.${scopeText(plan)}`;
-  const parts = [`🕒 *Trainer punctuality*${scopeText(plan)}\n_Check-in vs class start · ${lateGrace()} min grace_`];
+  const parts = [
+    `🕒 *Trainer punctuality*${scopeText(plan)}\n_Check-in vs class start, check-out vs class end · ${lateGrace()} min grace_${
+      res.ignoredName ? `\n_(no trainer named "${res.ignoredName}", so showing everyone)_` : ""
+    }`,
+  ];
   parts.push(
     late.length
       ? `⏰ *Late: ${late.length}*\n${late
@@ -332,6 +361,14 @@ function formatLate(plan, res, { dict }) {
           .map((r, i) => `*${i + 1}. ${r.trainer}* — *${r.minutes_late} min late*\n    in ${r.check_in} · class ${cls(r)} · ${place(r)}${when === "today" ? "" : ` · ${prettyValue(r.date)}`}`)
           .join("\n")}`
       : "⏰ *Late: 0* — nobody was late 🎉"
+  );
+  parts.push(
+    early.length
+      ? `🏃 *Left early: ${early.length}*\n${early
+          .slice(0, LATE_LIST)
+          .map((r, i) => `*${i + 1}. ${r.trainer}* — *${r.left_early} min early*\n    out ${r.check_out} · class ends ${clsEnd(r)} · ${place(r)}${when === "today" ? "" : ` · ${prettyValue(r.date)}`}`)
+          .join("\n")}`
+      : "🏃 *Left early: 0*"
   );
   if (onTime.length) parts.push(`✅ *On time: ${onTime.length}*\n${onTime.slice(0, LATE_LIST).map((r) => `• ${r.trainer} — ${r.check_in} (class ${cls(r)})`).join("\n")}`);
   if (res.missing.length) parts.push(`🚫 *Not checked in: ${res.missing.length}*\n${res.missing.slice(0, LATE_LIST).map((r) => `• ${r.trainer || "Unknown"} — ${place(r)} (class ${cls(r)})`).join("\n")}`);

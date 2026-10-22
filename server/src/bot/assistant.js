@@ -55,7 +55,7 @@ export function stripReasoning(text) {
 }
 
 // User feedback on the previous answer.
-const NEGATIVE = /^(no+|nope|nah|nahi+n?|galat|ghalat|wrong|incorrect|not (this|that|correct|right)|that'?s (wrong|not (it|right|what i asked))|this is wrong|ye galat|yeh galat|bilkul galat|kya bakwas)\b|\b(i (meant|mean|asked|said|wanted|was asking)|maine (kaha|kaha tha|poocha|pucha)|mein ne (aap ko )?(kaha|poocha|pucha)|i didn'?t ask|not what i asked|wrong (answer|data|reply|result)|galat (jawab|answer|data)|jabke (mein|maine) ne)\b/;
+const NEGATIVE = /^(no+|nope|nah|nahi+n?|galat|ghalat|wrong|incorrect|not (this|that|correct|right)|that'?s (wrong|not (it|right|what i asked))|this is wrong|ye galat|yeh galat|bilkul galat|kya bakwas)\b|\b(i (meant|mean|asked|said|wanted|was asking)|maine (kaha|kaha tha|poocha|pucha)|mein ne (aap ko )?(kaha|poocha|pucha)|i didn'?t ask|not what i asked|wrong (answer|data|reply|result)|galat (jawab|answer|data)|jabke (mein|maine) ne|(is|was|it'?s|that'?s|this'?s) (not (a |the )?(correct|right|what i)|wrong|incorrect)|not (a |the )?(correct|right|proper) (response|answer|reply|result|data)|(response|answer|reply|result) (is|was) (wrong|incorrect|not correct)|incorrect (response|answer|reply)|sahi nahi|theek nahi|ghalat)\b/;
 const POSITIVE = /^(correct|right|perfect|exactly|bilkul|sahi|sahi hai|bilkul sahi|yes correct|that'?s (right|correct|it)|good job|well done|great job|zabardast|shabash)( (hai|ha|he|bro|sir|thanks?|thank you))*$/;
 const YES = /^(yes+|yeah|yep|yup|ya|haa+n?|han|ji|jee|ji haan|haan ji|ok(ay)?|sure|please|kar do|krdo|kardo|theek hai|ہاں|جی|جی ہاں)( please| ji| jee| kar do)?$/;
 /** The correction without the complaint ("no, I asked about trainers" → "trainers"). */
@@ -73,7 +73,7 @@ function correctionContent(t) {
   return picked
     .replace(/\b(not|na|nahi) \w+(?: \w+)?$/g, " ")
     .replace(/\b(not|instead of) \w+\b/g, " ")
-    .replace(/\b(no+|not|this|that|is|was|wrong|galat|answer|jawab|you|aap|ne|mujhe|me|told|bataya|hai|tha|about|for|instead|rather|but|jabke|lekin|actually|ko|kaha|ka|ke|ki)\b/g, " ")
+    .replace(/\b(no+|not|this|that|is|was|wrong|galat|answer|jawab|you|aap|ne|mujhe|me|told|bataya|hai|tha|about|for|instead|rather|but|jabke|lekin|actually|ko|kaha|ka|ke|ki|your|my|response|reply|result|correct|incorrect|right|asked|meant|said|wanted|i)\b/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -161,7 +161,7 @@ export async function runAssistant(p) {
       p.onToken?.(reply);
       return finish({ action: "clarify", reply, source: "feedback" });
     }
-    p = { ...p, text: `${last0.question} ${content}`, _correction: { question: last0.question, key: last0.key, plan: last0.plan } };
+    p = { ...p, text: `${last0.question} ${content}`, _correction: { question: last0.question, key: last0.key, plan: last0.plan, content } };
   }
 
   const canned = p._fromYes || p._correction ? null : smallTalkReply(text);

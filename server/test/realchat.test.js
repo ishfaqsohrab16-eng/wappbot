@@ -35,11 +35,13 @@ const schema = H.lmsSchema();
 const CHECKINS = [
   { t_id: 1, trainer: "Shafi Ullah", date: "2026-10-22", check_in: "15:22:10", check_out: "17:05:00", center_id: 8, tb_id: 10, course_id: 1 },
   { t_id: 2, trainer: "Mis Amaara", date: "2026-10-22", check_in: "11:44:00", check_out: "14:08:00", center_id: 9, tb_id: 10, course_id: 1 },
+  { t_id: 4, trainer: "Early Bird", date: "2026-10-22", check_in: "11:50:00", check_out: "13:00:00", center_id: 9, tb_id: 10, course_id: 1 },
 ];
 const ALLOC = [
   { t_id: 1, trainer: "Shafi Ullah", center_id: 8, course_id: 1, tb_id: 10 },
   { t_id: 2, trainer: "Mis Amaara", center_id: 9, course_id: 1, tb_id: 10 },
   { t_id: 3, trainer: "Absent Khan", center_id: 8, course_id: 2, tb_id: 10 },
+  { t_id: 4, trainer: "Early Bird", center_id: 9, course_id: 1, tb_id: 10 },
 ];
 const SCHED = [
   { center_id: 8, course_id: 1, tb_id: 10, start_date: "2026-10-13", days: "Monday to Sunday", start_time: "03:00 PM", end_time: "05:00 PM" },
@@ -58,7 +60,11 @@ function respond(sql, params) {
   if (/GROUP BY/.test(sql)) return [{ k: 3, n: 2213 }, { k: 2, n: 2175 }, { k: 1, n: 1963 }, { k: 4, n: 81 }];
   if (/SUM\(/.test(sql)) return [{ total: 1250000, n: 2100 }];
   if (/COUNT\(/.test(sql)) return [{ n: 142 }];
-  if (/FROM trainers/.test(sql)) return [{ name: "Faizan Gul", email: "faizan@x.pk", course_id: 1 }];
+  if (/FROM trainers/.test(sql)) {
+    const all = [{ name: "Faizan Gul", email: "faizan@x.pk", course_id: 1 }, ...CHECKINS.map((r) => ({ name: r.trainer }))];
+    const like = flat.find((x) => x.startsWith("%"));
+    return like ? all.filter((t) => new RegExp(like.replace(/%/g, ".*"), "i").test(t.name)) : all.slice(0, 1);
+  }
   if (/FROM students/.test(sql)) return [{ name: "Bibi Ayesha", roll_no: "DB10-0240252-0", cnic: "54401-6647329-0", qualification: "undefined", phone: "3337881264", tb_id: 10 }];
   return [];
 }
@@ -102,12 +108,23 @@ const noLlm = (_reply, r) => assert.equal(r.llmCalls || 0, 0, "unexpected LLM ca
 test("late trainers: check-ins matched with class schedules", async () => {
   await converse([
     ["Show me todays trainer attendance", both(has(/Shafi Ullah/), noLlm)],
-    ["Match them with class scheduls", both(has(/Late: 1/), has(/Shafi Ullah\* — \*22 min late/), has(/On time: 1/), has(/Not checked in: 1/), has(/Absent Khan/), hasNot(/GraphicsAI_/), noLlm)],
+    ["Match them with class scheduls", both(has(/Late: 1/), has(/Shafi Ullah\* — \*22 min late/), has(/On time: 2/), has(/Left early: 1/), has(/Early Bird\* — \*60 min early/), has(/Not checked in: 1/), has(/Absent Khan/), hasNot(/GraphicsAI_/), noLlm)],
     ["Match both of them andget me late trainers", both(has(/Late: 1/), hasNot(/No trainer found/), noLlm)],
     ["Shafi trainer aaj class ma late to ni tha", both(has(/Shafi Ullah\* was \*22 min late/), noLlm)],
     ["Shafi aaj class ma late to ni tha", both(has(/22 min late/), hasNot(/Students/), noLlm)],
     ["was amaara on time today", both(has(/on time/), has(/16 min early/), noLlm)],
   ]);
+});
+
+test("log 2: late / left early, 'who was late?', complaints and a garbled correction", async () => {
+  await converse([
+    ["Give me todays late attendance trainers", both(has(/Trainer punctuality/), has(/Late: 1/), has(/Left early: 1/), noLlm)],
+    ["Who was late?", both(has(/Shafi Ullah\* — \*22 min late/), noLlm)],
+    ["This is not a correct response", both(has(/What did you want instead/), noLlm)],
+    ["No I asked for trainers who are late for tadays class or left early your response was wrong", both(has(/Late: 1/), has(/Left early: 1/), hasNot(/No trainer found|Asked|Tadays/), noLlm)],
+  ]);
+  await converse([["did anyone leave early today", both(has(/Left early: 1/), noLlm)]]);
+  await converse([["was Zzyzx late today", both(has(/no trainer named "Zzyzx"/), has(/Late: 1/))]]);
 });
 
 test("Urdu voice transcripts are understood without the LLM", async () => {

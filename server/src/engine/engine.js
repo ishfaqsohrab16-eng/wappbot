@@ -4,7 +4,7 @@ import { activeEntities } from "./entities.js";
 import { getDictionary, resolveBatch, resolveCenter, resolveCourse, resolveEnum, resolveDate } from "./dictionary.js";
 import { parse, slotKey, extractIdent, isFollowUpText, isGenericKey } from "./parser.js";
 import { execute, formatReply, helpText, humanizeRow, filterSummary, CHAT_LIST_ROWS } from "./executor.js";
-import { findLearned, learn, touchLearned, learnedSynonyms, learnWord } from "./learned.js";
+import { findLearned, learn, touchLearned, learnedSynonyms, learnWord, linkWord } from "./learned.js";
 import { editDistance } from "./dictionary.js";
 import { fold } from "../db/catalog.js";
 import { excelFile, chartFile, wordFile } from "./files.js";
@@ -20,6 +20,12 @@ const LOOKUP_ENTITIES = new Set(["batch", "center", "course"]);
 // Unknown words that are chit-chat, never a reason to run a lookup ("nice man").
 const CHATTY = new Set("nice cool great awesome super wow haha hahaha lol okay okk alright fine good bad sad happy dude bro bruh yaar buddy friend sweet lovely amazing interesting really seriously".split(" "));
 const sameAs = (a, b) => Boolean(a && b) && a.entity === b.entity && a.op === b.op && (a.dim || null) === (b.dim || null);
+/** The correction spells out the same question by itself ("trainers who are late"): the user is restating, not rejecting. */
+function restates(content, plan) {
+  if (!content || !restates.entities) return false;
+  const own = parse(content, { dict: restates.dict, entities: restates.entities });
+  return own.entity === plan.entity && own.op === plan.op && own.confidence >= RULE_MIN_CONFIDENCE;
+}
 const describe = (p) => (p ? `${p.op} of ${p.entity}${p.dim ? ` by ${p.dim}` : ""}` : "something else");
 let active = null; // { schemaAt, entities, problems }
 
@@ -52,7 +58,8 @@ export function validatePlan(plan, entities) {
   if (plan.op === "avg" && !(e.avg && Object.keys(e.avg).length)) return { ok: false, reason: `no average for ${e.plural}` };
   if (plan.op === "top" && !e.top) return { ok: false, reason: `no ranking for ${e.plural}` };
   if (plan.op === "details" && !plan.ident && !plan.lookupIds?.length) {
-    if (LOOKUP_ENTITIES.has(plan.entity)) plan.op = "list";
+    // "details of trainers" (plural, nobody named): show them rather than ask which one.
+    if (LOOKUP_ENTITIES.has(plan.entity) || new RegExp(`\\b${e.plural.split(" ").at(-1)}\\b`).test(plan.text || "")) plan.op = "list";
     else {
       const ways = Object.keys(e.idents || {}).map((k) => ({ cnic: "CNIC", rollno: "roll number", phone: "phone", name: "name" })[k] || k);
       return { ok: false, clarify: `Which ${e.singular}? Please send their ${ways.join(", ").replace(/, ([^,]*)$/, " or $1")}.` };
@@ -217,6 +224,8 @@ export async function answer(text, ctx) {
   const dict = await getDictionary(entities, ctx.query);
   const out = { handled: false, files: [], llmCalls: 0, source: null };
   let plan = parse(text, { dict, entities, last: ctx.last, synonyms: learnedSynonyms() });
+  restates.dict = dict;
+  restates.entities = entities;
   const base = plan;
   const key = slotKey(plan);
   plan.key = key;
@@ -250,7 +259,7 @@ export async function answer(text, ctx) {
     touchLearned(learned.entry);
     out.source = `learned:${learned.match}`;
     out.learnedId = learned.entry.id;
-  } else if (plan.entity && plan.op && plan.confidence >= RULE_MIN_CONFIDENCE && !(ctx.correction && sameAs(plan, ctx.correction.plan))) {
+  } else if (plan.entity && plan.op && plan.confidence >= RULE_MIN_CONFIDENCE && !(ctx.correction && sameAs(plan, ctx.correction.plan) && !restates(ctx.correction.content, plan))) {
     out.source = "rules";
   }
 
@@ -355,6 +364,8 @@ export async function answer(text, ctx) {
       for (const w of unknownWords.length === 1 ? unknownWords : []) {
         const lw = learnWord({ word: w, entity: plan.entity, confidence: conf, example: text });
         if (lw.saved) log.info(`Learned word "${w}" → ${plan.entity} [${lw.entry.status}]`);
+        // Tie the word to this pattern: if the user says the answer was wrong, both are unlearned.
+        if (lw.saved && r.entry) linkWord(r.entry, lw.entry);
       }
     }
   }
