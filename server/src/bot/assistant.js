@@ -11,8 +11,11 @@ import { engineEntities } from "../engine/engine.js";
 import { smallTalkReply, looksLikeDataQuestion } from "./intent.js";
 import { transcript } from "./context.js";
 import * as P from "./prompts.js";
-import { knowledgeAnswer } from "../knowledge/digibizz.js";
-import { extractIdent } from "../engine/parser.js";
+import { knowledgeAnswer, teamAnswer } from "../knowledge/digibizz.js";
+import { confirmLearned, rejectLearned, seedPhrasebook } from "../engine/learned.js";
+import { PHRASES_1000 } from "../knowledge/phrasebook.js";
+import { romanizeUrdu } from "../engine/urdu.js";
+import { extractIdent, parse, slotKey } from "../engine/parser.js";
 
 // Swappable for tests.
 let deps = { chat, streamChat, getSchema, runQuery };
@@ -29,11 +32,50 @@ export function llmCalls() {
 async function streamText(messages, { signal, onToken, maxTokens }) {
   llmCallCount++;
   let out = "";
-  for await (const tok of deps.streamChat(messages, { signal, maxTokens })) {
-    out += tok;
-    onToken?.(tok);
+  for await (const tok of deps.streamChat(messages, { signal, maxTokens })) out += tok;
+  // Tokens are collected first: small models sometimes "think out loud" without tags.
+  const clean = stripReasoning(out);
+  onToken?.(clean);
+  return clean;
+}
+
+const REASONING_START = /^(okay|ok|alright|hmm+|so|first|let me|let's|we need|i need|i should|the user|user (is|wants|asked|said|clarified)|looking at|based on the|wait)\b/i;
+const REASONING_LINE = /\b(the user|user's|they (want|mean|asked|said|clarified|are asking)|i should|i need to|let me|need to (explain|respond|reply|answer|check)|my (reply|response|answer)|the (assistant|system prompt)|in the reply|respond (in|with)|draft)\b/i;
+
+/** Drop leaked chain-of-thought ("Okay, the user clarified…") and keep the actual reply. */
+export function stripReasoning(text) {
+  const t = String(text || "").trim();
+  if (!REASONING_START.test(t) && !REASONING_LINE.test(t.split(/\n/)[0])) return t;
+  const paras = t.split(/\n\s*\n/).map((x) => x.trim()).filter(Boolean);
+  const keep = paras.filter((x) => !REASONING_LINE.test(x) && !REASONING_START.test(x));
+  if (keep.length) return keep.join("\n\n");
+  // Only reasoning came back: a quoted final reply inside it, else nothing usable.
+  const quoted = t.match(/["“]([^"”]{15,400})["”]\s*$/);
+  return quoted ? quoted[1] : "";
+}
+
+// User feedback on the previous answer.
+const NEGATIVE = /^(no+|nope|nah|nahi+n?|galat|ghalat|wrong|incorrect|not (this|that|correct|right)|that'?s (wrong|not (it|right|what i asked))|this is wrong|ye galat|yeh galat|bilkul galat|kya bakwas)\b|\b(i (meant|mean|asked|said|wanted|was asking)|maine (kaha|kaha tha|poocha|pucha)|mein ne (aap ko )?(kaha|poocha|pucha)|i didn'?t ask|not what i asked|wrong (answer|data|reply|result)|galat (jawab|answer|data)|jabke (mein|maine) ne)\b/;
+const POSITIVE = /^(correct|right|perfect|exactly|bilkul|sahi|sahi hai|bilkul sahi|yes correct|that'?s (right|correct|it)|good job|well done|great job|zabardast|shabash)( (hai|ha|he|bro|sir|thanks?|thank you))*$/;
+const YES = /^(yes+|yeah|yep|yup|ya|haa+n?|han|ji|jee|ji haan|haan ji|ok(ay)?|sure|please|kar do|krdo|kardo|theek hai|ہاں|جی|جی ہاں)( please| ji| jee| kar do)?$/;
+/** The correction without the complaint ("no, I asked about trainers" → "trainers"). */
+function correctionContent(t) {
+  // What follows the complaint is what they want ("you showed students, I said trainers").
+  const g = new RegExp(NEGATIVE.source, "g");
+  let end = -1;
+  let start = -1;
+  for (const m of t.matchAll(g)) {
+    start = m.index;
+    end = m.index + m[0].length;
   }
-  return out.trim();
+  const after = end >= 0 ? t.slice(end) : t;
+  const picked = after.split(" ").filter((w) => w.length >= 3).length >= 1 ? after : t.slice(0, Math.max(0, start));
+  return picked
+    .replace(/\b(not|na|nahi) \w+(?: \w+)?$/g, " ")
+    .replace(/\b(not|instead of) \w+\b/g, " ")
+    .replace(/\b(no+|not|this|that|is|was|wrong|galat|answer|jawab|you|aap|ne|mujhe|me|told|bataya|hai|tha|about|for|instead|rather|but|jabke|lekin|actually|ko|kaha|ka|ke|ki)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 /** Keep only what a follow-up needs from a plan. */
@@ -48,8 +90,22 @@ export async function warmEngine({ refresh = false } = {}) {
   const schema = await deps.getSchema();
   if (!schema.tables.size) return;
   if (refresh) clearResultCache();
-  await getDictionary(engineEntities(schema), deps.runQuery, { refresh });
+  const entities = engineEntities(schema);
+  const dict = await getDictionary(entities, deps.runQuery, { refresh });
+  // Expected questions the rules miss on this database: learn them now, not on first ask.
+  if (!seeded) {
+    seeded = true;
+    setImmediate(() => {
+      try {
+        const n = seedPhrasebook({ phrases: PHRASES_1000, parse, slotKey, dict, entities });
+        log.info(`Phrasebook: ${PHRASES_1000.length} expected questions checked, ${n} pre-taught`);
+      } catch (err) {
+        log.warn("Phrasebook seeding failed:", err.message);
+      }
+    });
+  }
 }
+let seeded = false;
 
 /**
  * Answer one user message.
@@ -72,14 +128,50 @@ export async function runAssistant(p) {
     return { files: [], ...result, ms };
   };
 
-  const canned = smallTalkReply(text);
+  const last0 = getLastLookup(key);
+  const roman = romanizeUrdu(text).toLowerCase().replace(/[!.,?؟۔]+/g, " ").replace(/\s+/g, " ").trim();
+
+  // "Yes" to a question the bot asked ("Did you mean late trainers today?")
+  if (YES.test(roman) && last0?.suggest) {
+    setLastLookup(key, { ...last0, suggest: null });
+    return runAssistant({ ...p, text: last0.suggest, _fromYes: true });
+  }
+  // "Correct / perfect" right after an answer: confirm what was learned.
+  if (POSITIVE.test(roman) && last0?.learnedId) {
+    const x = confirmLearned(last0.learnedId);
+    if (x) log.info(`User confirmed learned pattern ${x.id} (${x.status})`);
+    setLastLookup(key, { ...last0, learnedId: null });
+    const reply = "👍 Great — I'll remember that. Anything else?";
+    p.onToken?.(reply);
+    return finish({ action: "reply", reply, source: "feedback" });
+  }
+  // "Wrong / I asked about trainers": unlearn and answer the original question again.
+  const recent = last0?.at && Date.now() - last0.at < 15 * 60_000;
+  const correcting = NEGATIVE.test(roman) || (last0?.awaitingCorrection && roman.split(" ").length <= 8);
+  const aboutProgram = knowledgeAnswer(text) || teamAnswer(text);
+  if (last0?.question && recent && correcting && !aboutProgram) {
+    if (last0.learnedId) {
+      const x = rejectLearned(last0.learnedId);
+      if (x) log.info(`User rejected learned pattern ${x.id} → ${x.status}`);
+    }
+    const content = last0.awaitingCorrection ? roman : correctionContent(roman);
+    if (content.split(" ").filter((w) => w.length >= 3).length === 0) {
+      setLastLookup(key, { ...last0, learnedId: null, awaitingCorrection: true });
+      const reply = "🙏 Sorry about that! What did you want instead? e.g. _trainers, not students_ · _total amount, not count_ · _today only_";
+      p.onToken?.(reply);
+      return finish({ action: "clarify", reply, source: "feedback" });
+    }
+    p = { ...p, text: `${last0.question} ${content}`, _correction: { question: last0.question, key: last0.key, plan: last0.plan } };
+  }
+
+  const canned = p._fromYes || p._correction ? null : smallTalkReply(text);
   if (canned) {
     p.onToken?.(canned);
     return finish({ action: "reply", reply: canned, source: "canned" });
   }
 
   // General questions about the DigiBizz program (fee, stipend, eligibility, …)
-  const kb = knowledgeAnswer(text, { hasIdent: Boolean(extractIdent(text)) });
+  const kb = p._correction ? null : knowledgeAnswer(text, { hasIdent: Boolean(extractIdent(text)) }) || teamAnswer(text);
   if (kb) {
     p.onToken?.(kb.answer);
     return finish({ action: "reply", reply: kb.answer, source: `knowledge:${kb.id}` });
@@ -97,7 +189,8 @@ export async function runAssistant(p) {
   const schema = await deps.getSchema();
   if (!schema.tables.size) return finish({ action: "reply", reply: await chatReply(true), llmCalls: 1 });
 
-  const last = getLastLookup(key);
+  const last = p._correction ? null : getLastLookup(key);
+  const work = p._correction ? p.text : text;
   let noted = false;
   const llm = config.engine.llmFallback
     ? async (messages, opts) => {
@@ -111,18 +204,23 @@ export async function runAssistant(p) {
     : null;
 
   status("thinking");
-  const r = await answer(text, {
+  const r = await answer(work, {
     schema,
     query: deps.runQuery,
     last: last?.plan,
     lastText: last?.question,
+    correction: p._correction,
     llm,
     transcript: transcript(history.slice(-4), 600),
   });
 
   if (r.handled) {
     if (r.kind === "data") {
-      setLastLookup(key, { plan: compactPlan(r.plan), question: text, rowCount: r.rowCount });
+      const question = p._correction ? p._correction.question : text;
+      const k = p._correction ? p._correction.key : r.plan.key;
+      setLastLookup(key, { plan: compactPlan(r.plan), question, key: k, rowCount: r.rowCount, learnedId: r.learnedId || null, at: Date.now() });
+    } else if (r.kind === "clarify") {
+      setLastLookup(key, { ...(last || {}), suggest: r.suggest || null, awaitingCorrection: false });
     }
     p.onToken?.(r.reply);
     return finish({ action: r.kind === "data" ? "engine" : r.kind, reply: r.reply, files: r.files, source: r.source, llmCalls: r.llmCalls, plan: r.plan });

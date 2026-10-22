@@ -17,6 +17,10 @@ const RULE_MIN_CONFIDENCE = 0.55;
 const WRITE_RE =
   /^(?:please |pls |plz |can you |could you |kindly |zara )?(?:delete|remove|update|change|edit|modify|insert|create|add|register|enroll|approve|reject|suspend|block|unblock|reset|assign|allocate|mark)\b|\bsend (?:an? |the )?(?:email|emails|sms|message|messages|notification|notifications|reminder|reminders)\b|\bmark (?:the |their )?attendance\b|\b(?:delete|update|change|edit) (?:kar|karo|kardo|kar do)\b/;
 const LOOKUP_ENTITIES = new Set(["batch", "center", "course"]);
+// Unknown words that are chit-chat, never a reason to run a lookup ("nice man").
+const CHATTY = new Set("nice cool great awesome super wow haha hahaha lol okay okk alright fine good bad sad happy dude bro bruh yaar buddy friend sweet lovely amazing interesting really seriously".split(" "));
+const sameAs = (a, b) => Boolean(a && b) && a.entity === b.entity && a.op === b.op && (a.dim || null) === (b.dim || null);
+const describe = (p) => (p ? `${p.op} of ${p.entity}${p.dim ? ` by ${p.dim}` : ""}` : "something else");
 let active = null; // { schemaAt, entities, problems }
 
 export function engineEntities(schema) {
@@ -34,9 +38,15 @@ export function validatePlan(plan, entities) {
   if (plan.op === "help") return { ok: true };
   if (!e) return { ok: false, reason: "unknown entity" };
   if (plan.op === "current" && plan.entity !== "batch") plan.op = "list";
+  if (plan.op === "late") {
+    if (!e.late || !entities.schedule) return { ok: false, reason: "punctuality is only checked for trainer check-ins" };
+    return { ok: true };
+  }
   if (plan.op === "count_by" && !(e.dims || []).includes(plan.dim)) {
     if (e.defaultDim) plan.dim = e.defaultDim;
-    else return { ok: false, reason: `cannot break ${e.plural} down by ${plan.dim}` };
+    // No (or an impossible) breakdown: answer the plain total instead of an error.
+    else if (!plan.dim) plan.op = e.sum ? "sum" : "count";
+    else return { ok: false, reason: `I can't split ${e.plural} by ${plan.dim} — try by ${(e.dims || []).slice(0, 4).join(", ")}` };
   }
   if (plan.op === "sum" && !e.sum) plan.op = "count";
   if (plan.op === "avg" && !(e.avg && Object.keys(e.avg).length)) return { ok: false, reason: `no average for ${e.plural}` };
@@ -63,31 +73,36 @@ export function validatePlan(plan, entities) {
 function catalogText(entities) {
   return Object.entries(entities)
     .map(([n, e]) => {
-      const ops = ["count", "list", e.details?.length ? "details" : null, e.dims?.length ? "count_by" : null, e.sum ? "sum" : null, e.avg && Object.keys(e.avg).length ? "avg" : null, e.top ? "top" : null, n === "batch" ? "current" : null].filter(Boolean);
+      const ops = ["count", "list", e.details?.length ? "details" : null, e.dims?.length ? "count_by" : null, e.sum ? "sum" : null, e.avg && Object.keys(e.avg).length ? "avg" : null, e.top ? "top" : null, n === "batch" ? "current" : null, e.late ? "late" : null].filter(Boolean);
       const filters = [...Object.keys(e.filters || {}), e.date ? "date" : null].filter(Boolean);
       return `${n}: ops=${ops.join("/")}; dims=${(e.dims || []).join("/") || "-"}; filters=${filters.join("/") || "-"}${e.idents ? `; lookup by ${Object.keys(e.idents).join("/")}` : ""}${e.student ? "; per-student via cnic/rollno" : ""}`;
     })
     .join("\n");
 }
 
-function classifyPrompt(entities, { text, lastText, transcript }) {
+function classifyPrompt(entities, { text, lastText, transcript, correction }) {
   return [
     {
       role: "system",
       content: [
         "You route WhatsApp questions about an LMS (students, batches, centers, courses, trainers, attendance, admissions) to a JSON query plan. You never write SQL.",
         `Entities:\n${catalogText(entities)}`,
-        'Output JSON only: {"type":"data|chat|clarify|unsupported","op":"","entity":"","dim":null,"filters":{},"ident":null,"limit":null,"confidence":0.0,"reply":""}',
+        'Output JSON only: {"type":"data|chat|clarify|unsupported","op":"","entity":"","dim":null,"filters":{},"ident":null,"limit":null,"confidence":0.0,"reply":"","suggest":""}',
         '- data: op and entity from the list; dim only for count_by; filters as plain words, e.g. {"batch":"10","center":"quetta","course":"web","gender":"female","status":"active","date":"this month"}; ident {"type":"cnic|rollno|phone|name","value":"..."} for one person.',
         '- chat: greetings/small talk → "reply" short and friendly, same language as the user.',
         '- clarify: you cannot tell what they want → "reply" one short question.',
         '- unsupported: the data is not in the list → "reply" explaining briefly.',
+        '- clarify: also give "suggest": the most likely question rewritten in plain English (e.g. "late trainers today"), so a "yes" can run it.',
+        '- late (trainer_attendance only): who was late / on time vs the class schedule; ident {"type":"name"} for one trainer.',
+        "- Follow the user's latest correction if they say a previous answer was wrong.",
         "confidence: 0-1, how sure you are about op+entity. Users write English, Urdu or Roman Urdu with typos.",
       ].join("\n"),
     },
     {
       role: "user",
-      content: `${transcript ? `Recent chat:\n${transcript}\n\n` : ""}${lastText ? `Previous question: ${lastText}\n` : ""}Message: ${text}`,
+      content: `${transcript ? `Recent chat:\n${transcript}\n\n` : ""}${lastText ? `Previous question: ${lastText}\n` : ""}${
+        correction ? `The user said the answer to "${correction.question}" was WRONG (it was read as ${correction.wrong}). Their correction follows; answer the original question the way they mean it.\n` : ""
+      }Message: ${text}`,
     },
   ];
 }
@@ -221,7 +236,7 @@ export async function answer(text, ctx) {
 
   // 1-3. Learned patterns (exact, then close variants with the same slots)
   const learned = findLearned(key);
-  if (learned && (!plan.entity || !plan.op || plan.confidence < 0.9)) {
+  if (learned && !ctx.correction && (!plan.entity || !plan.op || plan.confidence < 0.75 || learned.entry.mapping.entity === plan.entity)) {
     const m = learned.entry.mapping;
     plan = { ...plan, op: m.op, entity: m.entity, dim: m.dim || plan.dim };
     // Re-extract enum filters for the learned entity
@@ -234,7 +249,8 @@ export async function answer(text, ctx) {
     }
     touchLearned(learned.entry);
     out.source = `learned:${learned.match}`;
-  } else if (plan.entity && plan.op && plan.confidence >= RULE_MIN_CONFIDENCE) {
+    out.learnedId = learned.entry.id;
+  } else if (plan.entity && plan.op && plan.confidence >= RULE_MIN_CONFIDENCE && !(ctx.correction && sameAs(plan, ctx.correction.plan))) {
     out.source = "rules";
   }
 
@@ -243,7 +259,8 @@ export async function answer(text, ctx) {
   if (!out.source && ctx.llm) {
     try {
       out.llmCalls++;
-      const raw = await ctx.llm(classifyPrompt(entities, { text, lastText: ctx.lastText, transcript: ctx.transcript }), {
+      const correction = ctx.correction && { question: ctx.correction.question, wrong: describe(ctx.correction.plan) };
+      const raw = await ctx.llm(classifyPrompt(entities, { text, lastText: ctx.lastText, transcript: ctx.transcript, correction }), {
         json: true,
         maxTokens: 220,
         temperature: 0,
@@ -256,17 +273,19 @@ export async function answer(text, ctx) {
       if (["chat", "clarify", "unsupported"].includes(llmJson.type)) {
         const reply = String(llmJson.reply || "").trim();
         if (llmJson.type === "chat") return { ...out, handled: false, chat: true, reply, plan };
+        const suggest = String(llmJson.suggest || "").trim().slice(0, 200);
         return {
           ...out,
           handled: true,
           kind: llmJson.type,
+          suggest: llmJson.type === "clarify" && suggest ? suggest : undefined,
           reply: reply || helpText(entities),
           plan,
           source: "llm",
         };
       }
       // Nothing data-like in the message ("what are you?"): never run a lookup.
-      const meaningful = plan.entity || Object.keys(plan.filters).length || plan.ident || plan.unknown?.length;
+      const meaningful = ctx.correction || plan.entity || Object.keys(plan.filters).length || plan.ident || plan.unknown?.some((w) => w.length >= 4 && !CHATTY.has(w));
       if (!meaningful) return { ...out, handled: false, chat: true, reply: "", plan };
       const p = planFromLlm(llmJson, plan, { dict, entities, text, last: ctx.last });
       if (p) {
@@ -284,7 +303,7 @@ export async function answer(text, ctx) {
   const v = validatePlan(plan, entities);
   if (!v.ok) {
     if (v.clarify) return { ...out, handled: true, kind: "clarify", reply: v.clarify, plan };
-    return { ...out, handled: true, kind: "unsupported", reply: `Sorry, ${v.reason}.\n\n${helpText(entities)}`, plan };
+    return { ...out, handled: true, kind: "unsupported", reply: `🤔 ${v.reason[0].toUpperCase()}${v.reason.slice(1)}.\n\n${helpText(entities)}`, plan };
   }
 
   let res;
@@ -313,10 +332,21 @@ export async function answer(text, ctx) {
   const files = await buildFiles(plan, res, { entities, dict, query: ctx.query, replyText: reply });
 
   // Learn: the LLM's interpretation worked, so remember the phrasing.
-  const found = ["count", "count_by", "sum", "avg"].includes(plan.op) || res.rows?.length;
-  if (out.source === "llm" && found && !res.meta?.studentNotFound && !isGenericKey(key)) {
+  const found = ["count", "count_by", "sum", "avg"].includes(plan.op) || res.rows?.length || res.missing?.length;
+  // A correction teaches the ORIGINAL question's phrasing, with the user's say-so.
+  if (ctx.correction?.key && found && !isGenericKey(ctx.correction.key)) {
+    // "Details" only made sense with the name in the correction; the bare phrasing means "show them".
+    const mapping = plan.op === "details" && !LOOKUP_ENTITIES.has(plan.entity) && !/\{(cnic|rollno|phone|email|name)\}/.test(ctx.correction.key) ? { ...plan, op: "list" } : plan;
+    const r = learn({ key: ctx.correction.key, mapping, confidence: 0.95, source: "feedback", example: ctx.correction.question, override: true });
+    if (r.entry) {
+      out.learnedId = r.entry.id;
+      log.info(`Learned from correction ${r.entry.id}: "${ctx.correction.key}" → ${plan.op}/${plan.entity}`);
+    }
+  }
+  if (out.source === "llm" && found && !res.meta?.studentNotFound && !isGenericKey(key) && !ctx.correction) {
     const conf = out.llmConfidence ?? 0;
     const r = learn({ key, mapping: plan, confidence: conf, example: text });
+    if (r.entry) out.learnedId = r.entry.id;
     if (r.saved) log.info(`Learned pattern ${r.entry.id} [${r.entry.status}]: "${key}" → ${plan.op}/${plan.entity}${plan.dim ? `/${plan.dim}` : ""}`);
     // Learn the unknown words too, so other sentences using them work without the LLM.
     if (base.entity !== plan.entity && plan.ident?.type !== "name") {

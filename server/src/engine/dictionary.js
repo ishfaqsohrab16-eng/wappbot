@@ -127,7 +127,11 @@ export function resolveBatch(d, text) {
 // Words too common in names to identify one center/course on their own.
 const GENERIC = new Set(["center", "centre", "campus", "institute", "college", "university", "school", "training", "course", "development", "digital", "skills", "main", "branch", "office", "technology", "sciences", "science", "pakistan", "balochistan"]);
 
-const COMMON = new Set("the of in at for and how many much list show all total count students student trainers trainer batch batches today data details info me give what which who is are hai hain ka ki ke mein".split(" "));
+// "with" / "and" are inside course names ("Graphic Design with AI"): never evidence on their own.
+const COMMON = new Set(
+  ("the of in at for and with to from by on or as how many much list show all total count students student trainers trainer batch batches today data details info me give what which who is are hai hain ka ki ke mein " +
+    "them they these those their there match both get class classes schedule schedules late time this that was were my your our").split(" ")
+);
 
 export function editDistance(a, b) {
   if (a === b) return 0;

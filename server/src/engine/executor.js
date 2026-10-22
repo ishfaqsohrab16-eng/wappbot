@@ -145,6 +145,201 @@ async function fuzzyNameIds(e, name, w0, query) {
   return scored.filter((r) => r.score >= top - 6).slice(0, 5);
 }
 
+// ---- trainer punctuality: check-ins vs class schedules ---------------------
+
+/** Minutes after midnight from "15:05:00", "03:00 PM", "2026-10-22 11:24:00" or a Date. */
+export function clockMinutes(v) {
+  if (v === null || v === undefined || v === "") return null;
+  if (v instanceof Date) return v.getHours() * 60 + v.getMinutes();
+  const m = String(v).trim().match(/(\d{1,2}):(\d{2})(?::\d{2})?\s*([ap])?\.?\s*m?\.?/i);
+  if (!m) return null;
+  let h = Number(m[1]);
+  const ap = m[3]?.toLowerCase();
+  if (ap === "p" && h < 12) h += 12;
+  if (ap === "a" && h === 12) h = 0;
+  return h * 60 + Number(m[2]);
+}
+
+const pad2 = (n) => String(n).padStart(2, "0");
+const ymd = (v) => (v instanceof Date ? `${v.getFullYear()}-${pad2(v.getMonth() + 1)}-${pad2(v.getDate())}` : String(v ?? "").slice(0, 10));
+const hhmm = (mins) => (mins === null ? "—" : `${pad2(Math.floor(mins / 60))}:${pad2(mins % 60)}`);
+const WEEK = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+
+/** "Monday to Friday", "Mon, Wed, Fri", "Mon-Sat" → is `date` a class day? Unknown text → true. */
+export function isClassDay(days, date) {
+  const s = String(days || "").toLowerCase();
+  const d = new Date(`${ymd(date)}T12:00:00Z`).getUTCDay();
+  if (!s || Number.isNaN(d)) return true;
+  const idx = (w) => WEEK.findIndex((x) => x.startsWith(w.slice(0, 3)));
+  const range = s.match(/([a-z]{3,})\w*\s*(?:to|-|–|till|through)\s*([a-z]{3,})/);
+  if (range && idx(range[1]) >= 0 && idx(range[2]) >= 0) {
+    const a = idx(range[1]);
+    const b = idx(range[2]);
+    return a <= b ? d >= a && d <= b : d >= a || d <= b;
+  }
+  const listed = (s.match(/[a-z]{3,}/g) || []).map(idx).filter((i) => i >= 0);
+  return listed.length ? listed.includes(d) : true;
+}
+
+const lateGrace = () => config.engine.lateGraceMin;
+
+/**
+ * Compare each trainer check-in with the class schedule of its center + course
+ * (+ batch), using the schedule in force on that day. Defaults to today.
+ */
+async function lateCheck(plan, { entities, query }) {
+  const e = entities.trainer_attendance;
+  if (!plan.filters?.date) {
+    const now = new Date();
+    const today = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`;
+    plan.filters = { ...plan.filters, date: { from: today, to: today, label: "today" } };
+  }
+  let w = where(e, plan);
+  if (plan.ident?.type === "name") w = addWhere(w, identClause("u.user_name", plan.ident));
+  const checkins = await run(
+    query,
+    `SELECT ta.t_id, u.user_name AS trainer, ta.ta_date AS date, ta.checkin_time AS check_in, ta.checkout_time AS check_out, ta.center_id, ta.tb_id, t.t_course_id AS course_id FROM ${e.from}${w.sql} ORDER BY ta.ta_date DESC, ta.checkin_time LIMIT 500`,
+    w.params,
+    500
+  );
+  const tIds = [...new Set(checkins.map((r) => r.t_id))];
+  const single = plan.filters.date.from === plan.filters.date.to;
+
+  // Courses each trainer teaches per center/batch, and the trainers expected that day.
+  let alloc = [];
+  if (entities.allocation) {
+    const aw = [];
+    const ap = [];
+    if (plan.ident?.type === "name") {
+      aw.push("u.user_name LIKE ?");
+      ap.push(`%${String(plan.ident.value).split(/\s+/).join("%")}%`);
+    } else if (single) {
+      const batches = plan.filters.batch?.ids?.length ? plan.filters.batch.ids : [...new Set(checkins.map((r) => r.tb_id))];
+      if (batches.length) {
+        aw.push("tca.tb_id IN (?)");
+        ap.push(batches);
+      }
+      if (plan.filters.center?.ids?.length) {
+        aw.push("tca.center_id IN (?)");
+        ap.push(plan.filters.center.ids);
+      }
+    } else if (tIds.length) {
+      aw.push("tca.t_id IN (?)");
+      ap.push(tIds);
+    }
+    if (aw.length)
+      alloc = await run(
+        query,
+        `SELECT tca.t_id, u.user_name AS trainer, tca.center_id, tca.course_id, tca.tb_id FROM ${entities.allocation.from} WHERE ${aw.join(" AND ")} LIMIT 1000`,
+        ap,
+        1000
+      );
+  }
+  const centerIds = [...new Set([...checkins, ...alloc].map((r) => r.center_id).filter((x) => x !== null && x !== undefined))];
+  const schedules = centerIds.length
+    ? await run(
+        query,
+        "SELECT cs.center_id, cs.course_id, cs.tb_id, cs.cs_start_date AS start_date, cs.cs_class_days AS days, cs.cs_start_time AS start_time, cs.cs_end_time AS end_time FROM class_schedules cs WHERE cs.center_id IN (?) LIMIT 1000",
+        [centerIds],
+        1000
+      )
+    : [];
+
+  /** The schedule in force on `date` for this center + one of the courses (+ batch). */
+  const scheduleFor = (center, courses, tb, date, checkin) => {
+    let list = schedules.filter((s) => String(s.center_id) === String(center) && courses.some((c) => String(c) === String(s.course_id)));
+    const sameBatch = list.filter((s) => String(s.tb_id) === String(tb));
+    if (sameBatch.length) list = sameBatch;
+    const started = list.filter((s) => !s.start_date || ymd(s.start_date) <= ymd(date));
+    if (started.length) list = started;
+    if (!list.length) return null;
+    // Latest schedule first; among a trainer's courses, the class nearest the check-in.
+    const latest = Math.max(...list.map((s) => (s.start_date ? Date.parse(ymd(s.start_date)) || 0 : 0)));
+    list = list.filter((s) => (s.start_date ? Date.parse(ymd(s.start_date)) || 0 : 0) === latest);
+    if (checkin !== null && list.length > 1) list.sort((a, b) => Math.abs(clockMinutes(a.start_time) - checkin) - Math.abs(clockMinutes(b.start_time) - checkin));
+    return list[0];
+  };
+  const coursesOf = (t, center, tb, fallback) => {
+    const mine = alloc.filter((a) => String(a.t_id) === String(t) && String(a.center_id) === String(center));
+    const inBatch = mine.filter((a) => String(a.tb_id) === String(tb));
+    const c = (inBatch.length ? inBatch : mine).map((a) => a.course_id);
+    return c.length ? [...new Set(c)] : [fallback];
+  };
+
+  const rows = checkins.map((r) => {
+    const inAt = clockMinutes(r.check_in);
+    const s = scheduleFor(r.center_id, coursesOf(r.t_id, r.center_id, r.tb_id, r.course_id), r.tb_id, r.date, inAt);
+    const start = s ? clockMinutes(s.start_time) : null;
+    let status = "no_schedule";
+    let minutes = null;
+    if (s && start !== null && inAt !== null) {
+      minutes = inAt - start;
+      status = !isClassDay(s.days, r.date) ? "no_class_day" : minutes > lateGrace() ? "late" : "on_time";
+    }
+    return { trainer: r.trainer, date: ymd(r.date), check_in: hhmm(inAt), check_out: r.check_out ? hhmm(clockMinutes(r.check_out)) : null, class_start: s?.start_time ?? null, minutes_late: minutes, status, center_id: r.center_id, course_id: s?.course_id ?? r.course_id };
+  });
+
+  // Expected that day (allocated, class day, schedule found) but no check-in.
+  const missing = [];
+  if (single && !plan.ident) {
+    const seen = new Set(checkins.map((r) => `${r.t_id}|${r.center_id}`));
+    const done = new Set();
+    for (const a of alloc) {
+      const k = `${a.t_id}|${a.center_id}`;
+      if (seen.has(k) || done.has(k)) continue;
+      const s = scheduleFor(a.center_id, [a.course_id], a.tb_id, plan.filters.date.from, null);
+      if (!s || !isClassDay(s.days, plan.filters.date.from)) continue;
+      done.add(k);
+      missing.push({ trainer: a.trainer, center_id: a.center_id, course_id: a.course_id, class_start: s.start_time });
+    }
+  }
+  return { rows, missing };
+}
+
+const LATE_LIST = 25;
+
+function formatLate(plan, res, { dict }) {
+  const place = (r) => [lookupName(dict, "center", r.center_id), lookupName(dict, "course", r.course_id)].filter(Boolean).join(" · ");
+  const cls = (r) => (r.class_start ? prettyValue(r.class_start) : "—");
+  const when = plan.filters?.date?.label || "today";
+  const by = (s) => res.rows.filter((r) => r.status === s);
+  const late = by("late").sort((a, b) => b.minutes_late - a.minutes_late);
+  const onTime = by("on_time");
+  const noSched = by("no_schedule");
+  const offDay = by("no_class_day");
+
+  if (plan.ident) {
+    if (!res.rows.length) return `🔍 No check-in found for *${plan.ident.display}* ${when}.\n_Either they didn't check in, or the name is spelled differently — try_ _trainer attendance ${when}_.`;
+    return res.rows
+      .slice(0, 10)
+      .map((r) => {
+        const head = `*${r.trainer}*${res.rows.length > 1 || when !== "today" ? ` · ${prettyValue(r.date)}` : ""}`;
+        if (r.status === "late") return `⏰ ${head} was *${r.minutes_late} min late* — checked in ${r.check_in}, class starts ${cls(r)}\n    ${place(r)}`;
+        if (r.status === "on_time")
+          return `✅ ${head} was *on time* — checked in ${r.check_in}, class starts ${cls(r)}${r.minutes_late < 0 ? ` (${-r.minutes_late} min early)` : ""}\n    ${place(r)}`;
+        if (r.status === "no_class_day") return `📅 ${head} checked in ${r.check_in}, but the schedule has no class that day\n    ${place(r)}`;
+        return `❔ ${head} checked in ${r.check_in} — no class schedule found for ${place(r) || "their center"}`;
+      })
+      .join("\n\n");
+  }
+
+  if (!res.rows.length && !res.missing.length) return `🕒 No trainer check-ins ${when}.${scopeText(plan)}`;
+  const parts = [`🕒 *Trainer punctuality*${scopeText(plan)}\n_Check-in vs class start · ${lateGrace()} min grace_`];
+  parts.push(
+    late.length
+      ? `⏰ *Late: ${late.length}*\n${late
+          .slice(0, LATE_LIST)
+          .map((r, i) => `*${i + 1}. ${r.trainer}* — *${r.minutes_late} min late*\n    in ${r.check_in} · class ${cls(r)} · ${place(r)}${when === "today" ? "" : ` · ${prettyValue(r.date)}`}`)
+          .join("\n")}`
+      : "⏰ *Late: 0* — nobody was late 🎉"
+  );
+  if (onTime.length) parts.push(`✅ *On time: ${onTime.length}*\n${onTime.slice(0, LATE_LIST).map((r) => `• ${r.trainer} — ${r.check_in} (class ${cls(r)})`).join("\n")}`);
+  if (res.missing.length) parts.push(`🚫 *Not checked in: ${res.missing.length}*\n${res.missing.slice(0, LATE_LIST).map((r) => `• ${r.trainer || "Unknown"} — ${place(r)} (class ${cls(r)})`).join("\n")}`);
+  if (offDay.length) parts.push(`📅 *Checked in on a non-class day: ${offDay.length}*\n${offDay.slice(0, 10).map((r) => `• ${r.trainer} — ${r.check_in}`).join("\n")}`);
+  if (noSched.length) parts.push(`❔ *No class schedule found: ${noSched.length}*\n${noSched.slice(0, 10).map((r) => `• ${r.trainer} — ${r.check_in} · ${place(r)}`).join("\n")}`);
+  return parts.join("\n\n");
+}
+
 const countExpr = (e, plan) =>
   plan.entity === "attendance" && !plan.studentScoped ? "COUNT(DISTINCT a.std_cnic)" : "COUNT(*)";
 
@@ -182,8 +377,14 @@ export async function execute(plan, { entities, query, exportRows = 0 }) {
     plan.studentScoped = true;
   }
 
-  const w0 = where(e, plan, student);
-  const key = JSON.stringify({ o: plan.op, e: plan.entity, d: plan.dim, f: plan.filters, l: plan.limit, x: exportRows, s: student?.std_id });
+  if (plan.op === "late") return { ...(await lateCheck(plan, { entities, query })), meta };
+
+  let w0 = where(e, plan, student);
+  // A name/CNIC on a non-student record ("Shafi's leaves", "trainer Ali allocations")
+  if (plan.ident && plan.op !== "details" && !e.student && e.idents?.[plan.ident.type]) w0 = addWhere(w0, identClause(e.idents[plan.ident.type], plan.ident));
+  // "centers in quetta": a list limited to the matched records
+  if (plan.lookupIds?.length && plan.op !== "details") w0 = addWhere(w0, { sql: `${e.key} IN (?)`, params: [plan.lookupIds] });
+  const key = JSON.stringify({ o: plan.op, e: plan.entity, d: plan.dim, f: plan.filters, l: plan.limit, x: exportRows, s: student?.std_id, i: plan.ident?.value, k: plan.lookupIds });
   const personal = Boolean(plan.ident);
 
   const go = async () => {
@@ -241,6 +442,11 @@ export async function execute(plan, { entities, query, exportRows = 0 }) {
           w = addWhere(w0, identClause(col, plan.ident));
         }
         let rows = await run(query, `SELECT ${e.details.join(", ")} FROM ${e.from}${w.sql} ORDER BY ${e.order} LIMIT 5`, w.params, 5);
+        // "who is usama": say how many share the name so the user can narrow it down.
+        if (rows.length >= 3 && plan.ident?.type === "name") {
+          const cnt = await run(query, `SELECT COUNT(*) AS n FROM ${e.from}${w.sql}`, w.params, 1);
+          return { rows: rows.slice(0, 3), total: Number(cnt[0]?.n || rows.length) };
+        }
         // Misspelled name: pull candidates sharing word prefixes, rank by similarity.
         if (!rows.length && plan.ident?.type === "name" && e.idents?.name) {
           const ids = await fuzzyNameIds(e, plan.ident.value, w0, query);
@@ -331,7 +537,14 @@ function cap(s) {
 }
 
 function isEmpty(v) {
-  return v === null || v === undefined || v === "" || v === "null";
+  return v === null || v === undefined || v === "" || v === "null" || v === "undefined" || v === "NULL";
+}
+
+/** "3337881264" / "923337881264" → "0333-7881264" */
+function prettyPhone(v) {
+  const d = String(v).replace(/\D/g, "");
+  const m = d.match(/^(?:92|0)?(3\d{2})(\d{7})$/);
+  return m ? `0${m[1]}-${m[2]}` : String(v);
 }
 
 const ICON = {
@@ -433,6 +646,10 @@ export function formatReply(plan, res, { entities, dict }) {
         return `🔍 No ${e.singular} found with ${what}.\nPlease check it and try again.`;
       }
       const intro = res.fuzzy ? `🔍 No exact match for *${plan.ident.display}*. Closest ${res.rows.length > 1 ? "matches" : "match"}:\n\n` : "";
+      const many =
+        res.total > res.rows.length
+          ? `\n\n🔎 *${fmtNum(res.total)}* ${e.plural} match *${plan.ident.display}* — showing ${res.rows.length}. Send a full name, CNIC or roll number to pick one${["student", "candidate", "trainer"].includes(plan.entity) ? `, or _list ${e.plural} named ${plan.ident.value}_` : ""}.`
+          : "";
       return (
         intro +
         res.rows
@@ -441,12 +658,15 @@ export function formatReply(plan, res, { entities, dict }) {
             const title = h.Name || h.name || h.Center || h.Batch || h.Course || cap(e.singular);
             const lines = Object.entries(h)
               .filter(([k, v]) => !isEmpty(v) && !["Name", "name"].includes(k) && String(v) !== String(title))
-              .map(([k, v]) => `${FIELD_ICON.find(([re]) => re.test(k))?.[1] || "▫️"} *${k}:* ${prettyValue(v)}`);
+              .map(([k, v]) => `${FIELD_ICON.find(([re]) => re.test(k))?.[1] || "▫️"} *${k}:* ${/phone|whatsapp|mobile/i.test(k) ? prettyPhone(v) : prettyValue(v)}`);
             return `${icon} *${title}*\n━━━━━━━━━━━━\n${lines.join("\n")}`;
           })
-          .join("\n\n")
+          .join("\n\n") +
+        many
       );
     }
+    case "late":
+      return formatLate(plan, res, { dict });
     case "list":
     default: {
       if (!res.rows.length) return `${icon} No ${e.plural} found${who}.${scopeLine}`;

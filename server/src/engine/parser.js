@@ -1,5 +1,6 @@
 import { fold } from "../db/catalog.js";
 import { resolveBatch, resolveCenter, resolveCourse, resolveEnum, resolveDate } from "./dictionary.js";
+import { romanizeUrdu, asciiDigits, hasUrdu, ROMAN_WORDS } from "./urdu.js";
 
 // Natural language → plan, deterministically. A plan is:
 // { op, entity, dim, filters: {batch:{ids,label}, center, course, gender, status, ..., date}, ident, limit, want, confidence }
@@ -27,6 +28,9 @@ const SPELL = {
   mnth: "month", mont: "month", wek: "week",
   totl: "total", totel: "total", ttl: "total",
   avrage: "average", avg: "average", averge: "average",
+  vise: "wise", vize: "wise", wais: "wise", waise: "wise", summed: "sum", summ: "sum", ernings: "earnings", earnig: "earning",
+  andget: "and get", schedul: "schedule", scheduls: "schedules", shedule: "schedule", sheduls: "schedules", schedual: "schedule",
+  organisation: "organization", organiztion: "organization", orginization: "organization",
   qta: "quetta", qetta: "quetta", kwetta: "quetta", khi: "karachi", lhr: "lahore", isb: "islamabad",
 };
 
@@ -34,7 +38,8 @@ const OP = {
   help: /\b(help|madad|what can you do|what do you do|commands?|menu|options|kya kar sakt[ae]|capabilities)\b/,
   avg: /\b(average|mean|ausat|avg)\b/,
   top: /\b(top|highest|best|most|maximum|toppers?|leaders?|leaderboard|sab se zyada|zyada se zyada|rank(?:ing)?)\b/,
-  sum: /\b(sum|amount|how much|kitne paise|kitni raqam|raqam|total earnings?|total amount|total income|kamai)\b/,
+  sum: /\b(sum|sums|sum up|add up|amount|amounts|how much|kitne paise|kitni raqam|raqam|total earnings?|total amount|total income|kamai|jama|figure)\b/,
+  late: /\b(late|latecomers?|der se|on time|ontime|punctual\w*|delay(?:ed)?|match(?: \w+){0,3} (?:with )?(?:the )?(?:class )?schedules?|compare(?: \w+){0,3} (?:with )?(?:the )?(?:class )?schedules?)\b/,
   count: /\b(how many|count|number of|no of|total|tadad|tadaad|ginti|kitne|quantity|qty)\b/,
   details: /\b(details|information|info|profile|record|about|maloomat|tafseel|data of|full data|complete data|bio)\b/,
   list: /\b(list|show|display|names?|who|kon|kaun|konsa|konse|kon kon|dikhao|dikha|batao|bata|give|send|share|all|sab|sare|saray|which|kis|kin)\b/,
@@ -79,7 +84,8 @@ export function isGenericKey(key) {
     .some((w) => w.length >= 3 && !STOP.has(w) && !NOT_NAME.has(w) && !/^(you|your|are|what|who|how|why|when|where|there|doing)$/.test(w));
 }
 
-const FOLLOW_REF = /\b(his|her|their|uska|uski|uske|iska|iski|iske|is ka|us ka|unka|inka|this student|that student|same student|same person|is student|us student|wo|woh)\b/;
+const PRONOUN = /\b(there|their|them|these|those|unka|inka|unki|inki|unke|inke)\b/;
+const FOLLOW_REF =/\b(his|her|their|uska|uski|uske|iska|iski|iske|is ka|us ka|unka|inka|this student|that student|same student|same person|is student|us student|wo|woh)\b/;
 const EXPORT = {
   excel: /\b(excel|xlsx|xls|sheet|spreadsheet|csv|export|download)\b/,
   chart: /\b(chart|graph|pie|bar chart|plot|visual|visuali[sz]e|diagram|graphic)\b/,
@@ -118,7 +124,7 @@ function vocabulary(entities) {
 
 /** Lowercase, fix common misspellings, keep identifiers intact. */
 export function normalize(text, entities = {}) {
-  let t = String(text || "")
+  let t = romanizeUrdu(text)
     .toLowerCase()
     .replace(/[’'`]/g, "")
     .replace(/[?!.,;:()[\]{}"]+/g, " ")
@@ -159,6 +165,10 @@ export function extractIdent(text) {
 /** All entity mentions, longest phrase first. */
 let SYNONYMS = {}; // learned words → entity, set per parse
 
+// Words that also appear in more specific subjects ("quiz marks", "syllabus topics"):
+// they only decide the subject when nothing more specific is named.
+const WEAK = new Set(["marks", "score", "scores", "final", "syllabus", "curriculum", "outline", "profiles", "task", "tasks", "query", "queries", "session", "sessions", "teaching", "support"]);
+
 function findEntities(t, entities) {
   const hits = [];
   for (const [w, name] of Object.entries(SYNONYMS)) {
@@ -168,7 +178,7 @@ function findEntities(t, entities) {
   for (const [name, e] of Object.entries(entities)) {
     for (const w of e.words) {
       const re = new RegExp(`\\b${w.replace(/ /g, "\\s+")}\\b`, "g");
-      for (const m of t.matchAll(re)) hits.push({ name, len: w.length, pos: m.index, word: w });
+      for (const m of t.matchAll(re)) hits.push({ name, len: WEAK.has(w) ? 1 : w.length, pos: m.index, word: w });
     }
   }
   return hits.sort((a, b) => b.len - a.len || a.pos - b.pos);
@@ -177,11 +187,14 @@ function findEntities(t, entities) {
 // Words that are never part of a person's name.
 const NOT_NAME = new Set(
   ("others other rest remaining baqi baki these those them ones name names list naam you your yourself bot assistant something anything nothing thing things stuff odd weird need want know check help idea question answer reply message good job nice great bad well done sorry okay yes no sure really very much more thanks thank welcome fine cool awesome perfect correct wrong right again try test testing hello there bye see later morning evening night weather time date day news price " +
-  "find search who whos kon kaun hai dhoond dhundo talash details information info profile about record named naam the ka ki ke ko please plz tell send give show get data full complete phone number contact email address father cnic roll rollno mobile whatsapp batch center course his her uska uski iska iski wala wali").split(" ")
+  "find search who whos kon kaun hai dhoond dhundo talash details information info profile about record named naam the ka ki ke ko please plz tell send give show get data full complete phone number contact email address father cnic roll rollno mobile whatsapp batch center course his her uska uski iska iski wala wali " +
+  "match both compare late early ontime punctual class classes ma mai main to ni nai nahi nahin tha thi thay aaj kal abhi koi sab tamam sare kitne kitni " +
+  "org organization organisation company institute program programme project department team office website your our yours ours man bro dude yaar buddy " +
+  "there their sum summed amount amounts approved figure total yes haan han ji jee no nope wrong galat correct sahi meant mean said asked").split(" ")
 );
 
 function knownWords(entities) {
-  const known = new Set([...STOP, ...vocabulary(entities), ...Object.keys(SYNONYMS)]);
+  const known = new Set([...STOP, ...vocabulary(entities), ...Object.keys(SYNONYMS), ...ROMAN_WORDS]);
   for (const e of Object.values(entities)) for (const w of e.words) for (const p of w.split(" ")) known.add(p);
   for (const w of Object.values(DIM_WORDS).join("|").split("|")) for (const p of w.split(" ")) known.add(p);
   for (const re of Object.values(OP)) for (const m of String(re.source).match(/[a-z]{3,}/g) || []) known.add(m);
@@ -239,6 +252,8 @@ function pickOp(plan, e, t) {
   if (has("avg") && e.avg && Object.keys(e.avg).length) return pick("avg");
   if (has("top") && e.top) return pick("top");
   if (e.sum && has("sum")) return pick("sum");
+  // "total earnings", "kitni earning": money is summed; counting needs "how many / entries".
+  if (e.sum && !plan.dim && /\b(total|kitne|tadad|overall|all)\b/.test(t) && !/\b(how many|count|number of|no of|entries|records|kitne (?:log|students|entries))\b/.test(t)) return pick("sum");
   if (plan.dim) return pick("count_by");
   if (plan.entity === "batch" && has("current") && !has("count")) return pick("current");
   if (plan.ident && (has("details") || !has("count"))) return pick(e.student && plan.entity !== "student" ? "list" : "details");
@@ -246,6 +261,11 @@ function pickOp(plan, e, t) {
   if (has("details")) return pick(e.details?.length && (e.idents || LOOKUP_ENTITIES.has(plan.entity)) ? "details" : "list");
   if (has("list") || plan.want.excel) return pick("list");
   if (e.sum) return pick("sum", false);
+  // "attendance today at ITTI": present / absent / leave split is the useful answer.
+  if (e.defaultDim && !plan.filters[e.defaultDim]) {
+    plan.dim = e.defaultDim;
+    return pick("count_by", false);
+  }
   return pick(e.defaultOp || (LOOKUP_ENTITIES.has(plan.entity) && !Object.keys(plan.filters).length ? "list" : "count"), false);
 }
 
@@ -259,7 +279,7 @@ export function parse(text, { dict, entities, last, synonyms = {} } = {}) {
   const plan = { op: null, entity: null, dim: null, filters: {}, ident: null, limit: null, want: {}, text: t };
 
   for (const [k, re] of Object.entries(EXPORT)) if (re.test(t)) plan.want[k] = true;
-  plan.ident = extractIdent(text);
+  plan.ident = extractIdent(asciiDigits(text));
 
   // Lookup filters (fuzzy-matched against real batches / centers / courses)
   const batch = resolveBatch(dict, t);
@@ -293,6 +313,50 @@ export function parse(text, { dict, entities, last, synonyms = {} } = {}) {
   }
   if (entities.trainer_leave && plan.entity === "leave" && /\b(trainer|teacher)s?\b/.test(t)) plan.entity = "trainer_leave";
   if (entities.trainer_attendance && /\b(trainer|teacher)s?\b/.test(t) && /\b(attendance|present|absent|check ?in|checkout)\b/.test(t)) plan.entity = "trainer_attendance";
+  // "which trainers are assigned to ITTI": the allocation, not the trainer record
+  if (entities.allocation && plan.entity === "trainer" && /\b(assigned|allocated|allocations?|posted|postings?)\b/.test(t)) plan.entity = "allocation";
+  // "average assignment marks" → submissions carry the marks
+  if (entities.submission && plan.entity === "assignment" && /\b(average|avg|marks|obtained|score)\b/.test(t)) plan.entity = "submission";
+  // "when does batch 9 end at ITTI", "batch start date": per-center batch dates
+  if (entities.center_dates && /\b(start|starts|starting|begin|begins|end|ends|ending|shuru|khatam|close|closes)\b/.test(t) && /\b(batch|session|class|classes|training)\b/.test(t) && (!plan.entity || defaulted || ["batch", "student"].includes(plan.entity)) && !OP.count.test(t)) {
+    plan.entity = plan.filters.center || !entities.batch ? "center_dates" : "batch";
+    if (plan.entity === "batch" && plan.filters.batch?.ids?.length) {
+      plan.op = "details";
+      plan.lookupIds = plan.filters.batch.ids;
+      delete plan.filters.batch;
+    }
+    defaulted = false;
+  }
+  // "centers in quetta", "list centres of sibi": those center records
+  if (entities.center && plan.filters.center && /\b(centers|centres|campuses|markaz)\b/.test(t) && !OP.count.test(t) && (!plan.entity || defaulted || plan.entity === "center")) {
+    plan.entity = "center";
+    plan.op = "list";
+    plan.lookupIds = plan.filters.center.ids;
+    delete plan.filters.center;
+    defaulted = false;
+  }
+  // "late trainers", "was Shafi late today", "match them with class schedules":
+  // trainer check-ins compared with the class schedule. Students have their own
+  // "late" attendance status, so only when no student word is used.
+  if (entities.trainer_attendance && entities.schedule && OP.late.test(t) && !/\b(students?|learners?|trainees?)\b/.test(t)) {
+    const trainerTalk = /\b(trainer|teacher|instructor)s?\b/.test(t) || ["trainer", "trainer_attendance", "schedule"].includes(last?.entity);
+    if (trainerTalk || !plan.entity || plan.entity === "schedule") {
+      if (["trainer_attendance", "schedule"].includes(last?.entity)) plan.filters = { ...(last.filters || {}), ...plan.filters };
+      plan.entity = "trainer_attendance";
+      plan.op = "late";
+      defaulted = false;
+    }
+  }
+  // Only a breakdown was named ("course wise", "list corse vise"): students.
+  if (!plan.entity && plan.dim && entities.student && !last) {
+    plan.entity = "student";
+    defaulted = true;
+  }
+  // "amount summed up", "total figure": money lives in earnings.
+  if ((!plan.entity || (defaulted && plan.entity === "student")) && entities.earning && OP.sum.test(t) && !OP.count.test(t.replace(/\btotal\b/g, ""))) {
+    plan.entity = "earning";
+    defaulted = false;
+  }
   // "top students by score" → the record that supports the ranking
   for (const k of ["top", "avg"]) {
     if (OP[k].test(t) && plan.entity && !entities[plan.entity]?.[k]) {
@@ -338,11 +402,28 @@ export function parse(text, { dict, entities, last, synonyms = {} } = {}) {
     [plan.filters.center?.label, plan.filters.course?.label, plan.filters.district?.label].filter(Boolean).flatMap((s) => fold(s).split(" "))
   );
   const blockedOps = ["count", "count_by", "sum", "avg", "top", "help", "current"];
+  const isNameWord = (w) => /^[a-z]{3,}$/.test(w) && !known.has(w) && !consumedLabels.has(w) && !NOT_NAME.has(w);
+  // "was Shafi late today", "Shafi trainer late": the trainer's name narrows the check.
+  if (plan.op === "late" && !plan.ident && !hasUrdu(text)) {
+    const words = t.split(" ").filter(isNameWord);
+    if (words.length >= 1 && words.length <= 3)
+      plan.ident = { type: "name", value: words.join(" "), display: words.map((w) => w[0].toUpperCase() + w.slice(1)).join(" ") };
+  }
   if (!plan.ident && !plan.lookupIds && (!plan.entity || PERSON.has(plan.entity)) && !(opExplicit && blockedOps.includes(plan.op)) && !plan.dim) {
     const words = t.split(" ").filter((w) => /^[a-z]{2,}$/.test(w) && !known.has(w) && !consumedLabels.has(w) && !NOT_NAME.has(w));
     const asked = /\b(find|search|who is|whos|kon hai|kaun hai|dhoond|dhundo|talash|details|information|info|profile|about|record|named|naam|called)\b/.test(t);
     const short = t.split(" ").length <= 4 && words.length >= 2;
-    const namedSubject = plan.entity && !defaulted && PERSON.has(plan.entity) && words.length >= 2 && !Object.keys(plan.filters).length;
+    // "trainer Shafi" / "Ali Khan student": the name sits right next to the person word.
+    const tw = t.split(" ");
+    const pos = tw.findIndex((w) => entities[plan.entity]?.words.includes(w));
+    const runAt = (i, step) => {
+      const r = [];
+      for (let j = i; j >= 0 && j < tw.length && r.length < 4 && isNameWord(tw[j]); j += step) r.push(tw[j]);
+      return step < 0 ? r.reverse() : r;
+    };
+    const adjacent = pos >= 0 ? (runAt(pos + 1, 1).length ? runAt(pos + 1, 1) : runAt(pos - 1, -1)) : [];
+    const namedSubject = plan.entity && !defaulted && PERSON.has(plan.entity) && adjacent.length >= 1 && !Object.keys(plan.filters).length;
+    if (namedSubject && !asked) words.splice(0, words.length, ...adjacent);
     if (words.length >= 1 && words.length <= 4 && (asked || (short && !plan.entity) || namedSubject)) {
       plan.ident = { type: "name", value: words.join(" "), display: words.map((w) => w[0].toUpperCase() + w.slice(1)).join(" ") };
       plan.nameAsked = asked || (Boolean(plan.entity) && !defaulted);
@@ -394,6 +475,11 @@ export function parse(text, { dict, entities, last, synonyms = {} } = {}) {
       delete plan.lookupIds;
     }
   }
+  // "their amount", "un ka total": same subject as before, keep its filters.
+  if (last?.entity && !plan.followUp && plan.entity === last.entity && PRONOUN.test(t) && !plan.ident) {
+    plan.filters = { ...(last.filters || {}), ...plan.filters };
+    plan.followUp = true;
+  }
   if (last?.entity && !plan.followUp) {
     const startsLikeFollowUp = /^(and|aur|what about|how about|or|also|same for|now|ab|sirf|only)\b/.test(t);
     if (!plan.ident && FOLLOW_REF.test(t) && last.ident) {
@@ -435,10 +521,11 @@ export function parse(text, { dict, entities, last, synonyms = {} } = {}) {
   const unknown = t
     .replace(/\b\d+\b/g, " ")
     .split(" ")
-    .filter((w) => w.length >= 3 && !known.has(w) && !consumed.includes(w) && !NOT_NAME.has(w));
+    .filter((w) => w.length >= 3 && !known.has(w) && !consumed.includes(w) && !NOT_NAME.has(w) && w !== "_u_");
   plan.unknown = unknown;
+  const urduUnknown = t.split(" ").filter((w) => w === "_u_").length;
   let c = plan.entity && plan.op ? 0.9 : plan.op === "help" ? 0.9 : 0.2;
-  c -= Math.min(0.5, unknown.length * 0.12);
+  c -= Math.min(0.5, unknown.length * 0.12 + urduUnknown * 0.05);
   if (plan.followUp) c = Math.max(c, 0.75);
   plan.confidence = Math.max(0, Math.round(c * 100) / 100);
   return plan;

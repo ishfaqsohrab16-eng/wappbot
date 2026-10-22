@@ -162,20 +162,29 @@ export function touchLearned(entry) {
  * pending (needs /approve) when ≥ LEARN_MIN_CONFIDENCE, otherwise ignored.
  * Never overwrites a different active mapping (conflicts are kept as pending).
  */
-export function learn({ key, mapping, confidence, source = "llm", example }) {
+export function learn({ key, mapping, confidence, source = "llm", example, override = false }) {
   load();
   if (!key || key.split(" ").length < 2 || key.length > 300) return { saved: false, reason: "too short/long" };
   if (isGenericKey(key)) return { saved: false, reason: "too generic" };
   if (confidence < config.engine.learnMinConfidence) return { saved: false, reason: "low confidence" };
   const existing = entries.filter((x) => x.key === key);
   const same = existing.find((x) => sameMapping(x.mapping, mapping));
+  // The user corrected us: their reading wins over whatever was learned before.
+  if (override) {
+    for (const x of existing) if (x !== same && x.status === "active") Object.assign(x, { status: "disabled", note: "replaced by user correction" });
+    if (same) {
+      Object.assign(same, { status: "active", source, confirmations: (same.confirmations || 0) + 1 });
+      save();
+      return { saved: true, entry: same };
+    }
+  }
   if (same) {
     same.confirmations = (same.confirmations || 0) + 1;
     if (same.status === "pending" && same.confirmations >= 2 && confidence >= config.engine.learnMinConfidence) same.status = "active";
     save();
     return { saved: false, reason: "duplicate", entry: same };
   }
-  const conflict = existing.some((x) => x.status === "active");
+  const conflict = !override && existing.some((x) => x.status === "active");
   const entry = {
     id: crypto.randomBytes(4).toString("hex"),
     key,
@@ -198,6 +207,49 @@ export function learn({ key, mapping, confidence, source = "llm", example }) {
   }
   save();
   return { saved: true, entry };
+}
+
+/**
+ * Pre-teach the expected questions the rules don't route as intended (with the
+ * live dictionary). Seeds never override a pattern someone already taught.
+ * parse/slotKey are passed in to keep this module free of a parser import cycle.
+ */
+export function seedPhrasebook({ phrases, parse, slotKey, dict, entities }) {
+  load();
+  let seeded = 0;
+  for (const [q, op, entity, dim] of phrases) {
+    if (!entities[entity]) continue;
+    const p = parse(q, { dict, entities });
+    if (p.op === op && p.entity === entity && (!dim || p.dim === dim) && p.confidence >= 0.55) continue;
+    const key = slotKey(p);
+    if (entries.some((x) => x.key === key)) continue;
+    const r = learn({ key, mapping: { op, entity, dim: dim || null }, confidence: 0.95, source: "seed", example: q });
+    if (r.saved) seeded++;
+  }
+  return seeded;
+}
+
+/** "Correct / perfect": one more confirmation; pending patterns go live after two. */
+export function confirmLearned(id) {
+  load();
+  const x = entries.find((e) => e.id === id) || words.find((e) => e.id === id);
+  if (!x || x.status === "disabled") return null;
+  x.confirmations = (x.confirmations || 0) + 1;
+  x.userConfirmed = (x.userConfirmed || 0) + 1;
+  if (x.status === "pending" && x.confirmations >= 2) x.status = "active";
+  save();
+  return x;
+}
+
+/** "Wrong answer": stop using a pattern unless users confirmed it more often than they rejected it. */
+export function rejectLearned(id, note = "user said the answer was wrong") {
+  load();
+  const x = entries.find((e) => e.id === id);
+  if (!x) return null;
+  x.rejections = (x.rejections || 0) + 1;
+  if (x.status === "pending" || x.rejections > (x.userConfirmed || 0)) Object.assign(x, { status: "disabled", note });
+  save();
+  return x;
 }
 
 export function listLearned({ status, kind } = {}) {

@@ -20,22 +20,27 @@ function extFor(mime = "") {
 }
 
 /** whisper-asr-webservice (onerahmet/openai-whisper-asr-webservice) */
-async function whisperAsr(buf, mime, signal) {
+async function whisperAsr(buf, mime, signal, language) {
   const form = new FormData();
   form.append("audio_file", new Blob([buf], { type: mime }), `voice.${extFor(mime)}`);
-  const url = `${config.stt.baseUrl}/asr?encode=true&task=transcribe&output=json&vad_filter=true`;
+  const q = new URLSearchParams({ encode: "true", task: "transcribe", output: "json", vad_filter: "true" });
+  if (language) q.set("language", language);
+  if (config.stt.prompt) q.set("initial_prompt", config.stt.prompt);
+  const url = `${config.stt.baseUrl}/asr?${q}`;
   const res = await fetch(url, { method: "POST", body: form, signal });
   if (!res.ok) throw new Error(`STT HTTP ${res.status}`);
   const body = await res.json();
-  return { text: (body.text || "").trim(), language: body.language || null };
+  return { text: (body.text || "").trim(), language: body.language || language || null };
 }
 
 /** OpenAI-compatible /v1/audio/transcriptions (speaches, OpenAI, Groq, ...) */
-async function openaiCompat(buf, mime, signal) {
+async function openaiCompat(buf, mime, signal, language) {
   const form = new FormData();
   form.append("file", new Blob([buf], { type: mime }), `voice.${extFor(mime)}`);
   form.append("model", config.stt.model);
   form.append("response_format", "verbose_json");
+  if (language) form.append("language", language);
+  if (config.stt.prompt) form.append("prompt", config.stt.prompt);
   const base = config.stt.baseUrl.endsWith("/v1") ? config.stt.baseUrl : `${config.stt.baseUrl}/v1`;
   const res = await fetch(`${base}/audio/transcriptions`, {
     method: "POST",
@@ -45,8 +50,10 @@ async function openaiCompat(buf, mime, signal) {
   });
   if (!res.ok) throw new Error(`STT HTTP ${res.status}`);
   const body = await res.json();
-  return { text: (body.text || "").trim(), language: body.language || null };
+  return { text: (body.text || "").trim(), language: body.language || language || null };
 }
+
+const DEVANAGARI = /[ऀ-ॿ]/;
 
 /** Transcribe audio bytes. Returns { text, language }. */
 export async function transcribe(buf, mime = "audio/ogg") {
@@ -55,8 +62,13 @@ export async function transcribe(buf, mime = "audio/ogg") {
     const started = Date.now();
     try {
       const signal = AbortSignal.timeout(config.stt.timeoutMs);
-      const out =
-        config.stt.provider === "openai" ? await openaiCompat(buf, mime, signal) : await whisperAsr(buf, mime, signal);
+      const run = (lang) => (config.stt.provider === "openai" ? openaiCompat(buf, mime, signal, lang) : whisperAsr(buf, mime, signal, lang));
+      let out = await run(config.stt.language || undefined);
+      // Whisper often hears Urdu as Hindi and writes Devanagari the bot can't read: redo it as Urdu.
+      if (!config.stt.language && (/^(hi|hindi)$/i.test(out.language || "") || DEVANAGARI.test(out.text))) {
+        log.info(`STT detected ${out.language || "Devanagari"}; retrying as Urdu`);
+        out = await run("ur");
+      }
       log.info(`STT ${Date.now() - started}ms lang=${out.language ?? "?"} chars=${out.text.length}`);
       return out;
     } catch (err) {

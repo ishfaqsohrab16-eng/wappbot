@@ -10,7 +10,7 @@ const CONTACT =
 export const TOPICS = [
   {
     id: "about",
-    re: /\b(what is|whats|about|tell me about|introduce|kya hai|kia hai|ke bare|ke baare|maloomat)\b.*\bdigi ?bizz?\b|\bdigi ?bizz?\b.*\b(kya hai|kia hai|what is|about)\b|^digi ?bizz?$|\babout (the )?program\b/,
+    re: /\b(what is|whats|about|tell me about|introduce|kya hai|kia hai|ke bare|ke baare|maloomat)\b.*\bdigi ?bizz?\b|\bdigi ?bizz?\b.*\b(kya hai|kia hai|what is|about)\b|^digi ?bizz?$|\babout (the )?program\b|\b(your|this|ur) (org|organi[sz]ation|company|program|programme|project|institute|initiative)\b(?! (director|officer|team|incharge|head|manager))|^(i )?(meant|mean) (the |your )?(org|organi[sz]ation|program|company)\b|\bwho (runs|owns|made|funds) (this|you|digibizz)\b/,
     answer:
       "🚀 *DigiBizz — Training to Dollars*\nBalochistan's first mega employment program, by the *Science & IT Department, Government of Balochistan*.\n\nIt trains the youth of Balochistan in in-demand *digital skills* and *freelancing* so they can earn online, support their families and build a better future.\n\n• 100% *free* training\n• *Stipend* of Rs. 6,200 at the end of the training\n• *4-month* training, 3 courses, each with freelancing training\n• Official certificate on completion",
   },
@@ -107,6 +107,28 @@ export const TOPICS = [
     answer: "💻 *LMS help:* video tutorials on creating your DigiBizz LMS account and the dashboard: digibizz.gob.pk/lms-help\nStudent LMS: lms.digibizz.gob.pk",
   },
 ];
+
+const TEAM = [
+  ["Jawad Ahmed", "Program Director"],
+  ["Mansoor Ahmed", "Admin Officer"],
+  ["Usama Nadeem", "M&E Officer"],
+  ["Azib Anjum", "Master Trainer – Digital Marketing"],
+  ["Mohsin Ali", "Master Trainer – Graphics"],
+  ["Muhammad Umar", "Master Trainer – AWE"],
+  ["Abdul Moiz Khan", "LMS Incharge"],
+];
+
+/** "Usama Nadeem", "who is jawad ahmed": a DigiBizz team member, not a student. */
+export function teamAnswer(text) {
+  const t = String(text || "")
+    .toLowerCase()
+    .replace(/[?!.,;:'"]/g, " ")
+    .replace(/\b(who is|whos|who's|kon hai|kaun hai|tell me about|about|details of|sir|madam|mr|ms)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const hit = TEAM.find(([n]) => n.toLowerCase() === t);
+  return hit ? { id: "team-member", answer: `👤 *${hit[0]}* is the *${hit[1]}* of DigiBizz.\n\nFor the full team ask: _DigiBizz team_ · contact: 081-9203131` } : null;
+}
 
 /** Words that mean the user wants numbers/records from the database instead. */
 const DATA_ASK = /\b(how many|kitne|count|total|list|names?|show|number of|by center|wise|batch \d+|students? (in|of|at|from)|enrolled|present|absent|today|this (month|week))\b/;

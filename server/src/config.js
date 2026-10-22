@@ -95,6 +95,8 @@ export const config = {
     exportMaxRows: num("EXPORT_MAX_ROWS", 5000),
     autoExcel: bool("AUTO_EXCEL", true),
     autoChart: bool("AUTO_CHART", true),
+    // Minutes after class start before a trainer check-in counts as late.
+    lateGraceMin: num("TRAINER_LATE_GRACE_MIN", 10),
   },
 
   // Text-to-speech for voice replies (OpenAI-compatible /v1/audio/speech, e.g. Kokoro)
@@ -137,6 +139,10 @@ export const config = {
     model: str("STT_MODEL", "whisper-1"),
     timeoutMs: num("STT_TIMEOUT_MS", 120000),
     maxAudioSeconds: num("STT_MAX_AUDIO_SECONDS", 180),
+    // Force a language ("ur", "en") or leave empty to auto-detect. Hindi detections are redone as Urdu.
+    language: str("STT_LANGUAGE"),
+    // Domain words that help Whisper spell names and terms correctly.
+    prompt: str("STT_PROMPT", "DigiBizz LMS: students, trainers, attendance, batch, center, course, earnings, ITTI, BUITEMS, MCKRU, Quetta, Sibi, AWE, GraphicsAI, Digital Marketing. طلبہ، ٹرینرز، حاضری، بیچ، سینٹر، کورس"),
   },
 
   bot: {

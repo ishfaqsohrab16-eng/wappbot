@@ -65,6 +65,8 @@ export const ENTITIES = {
     words: ["trainer", "trainers", "teacher", "teachers", "instructor", "instructors", "tutor", "tutors", "faculty", "ustad", "sir", "madam"],
     singular: "trainer",
     plural: "trainers",
+    // A handful per center: show them unless a count is asked for.
+    defaultOp: "list",
     from: "trainers t LEFT JOIN `user` u ON u.user_id = t.user_id",
     uses: { trainers: ["t_id", "user_id", "t_cnic", "t_course_id", "t_status"], user: ["user_id", "user_name", "user_email"], trainers_center_allocation: ["t_id", "center_id", "course_id", "tb_id"] },
     // Centers/batches come from the allocation table.
@@ -83,6 +85,7 @@ export const ENTITIES = {
   },
   allocation: {
     words: ["allocation", "allocations", "allocated", "assigned", "posting", "postings", "teaching"],
+    defaultOp: "list",
     singular: "trainer allocation",
     plural: "trainer allocations",
     from: "trainers_center_allocation tca LEFT JOIN trainers t ON t.t_id = tca.t_id LEFT JOIN `user` u ON u.user_id = t.user_id",
@@ -90,6 +93,7 @@ export const ENTITIES = {
     filters: scope("tca"),
     dims: ["batch", "center", "course"],
     list: ["u.user_name AS trainer", "tca.center_id", "tca.course_id", "tca.tb_id"],
+    idents: { name: "u.user_name" },
     order: "u.user_name",
     key: "tca.tca_id",
   },
@@ -151,7 +155,7 @@ export const ENTITIES = {
     defaultDim: "status",
   },
   earning: {
-    words: ["earning", "earnings", "earner", "earners", "income", "freelance", "freelancing", "payout", "payment", "payments", "kamai", "kamaai", "revenue", "dollars"],
+    words: ["earning", "earnings", "earner", "earners", "income", "freelance", "freelancing", "payout", "payment", "payments", "earn", "earned", "earns", "kamai", "kamaai", "revenue", "dollars"],
     singular: "earning entry",
     plural: "earning entries",
     from: "earnings e",
@@ -242,6 +246,7 @@ export const ENTITIES = {
   },
   trainer_leave: {
     words: ["trainer leave", "trainer leaves", "teacher leave", "teacher leaves"],
+    defaultOp: "list",
     singular: "trainer leave",
     plural: "trainer leaves",
     from: "trainer_leaves tl LEFT JOIN trainers t ON t.t_id = tl.t_id LEFT JOIN `user` u ON u.user_id = t.user_id",
@@ -250,6 +255,7 @@ export const ENTITIES = {
     dims: ["status", "center", "course"],
     date: "tl.tl_date",
     list: ["u.user_name AS trainer", "tl.tl_date AS date", "tl.tl_subject AS subject", "tl.tl_status AS status"],
+    idents: { name: "u.user_name" },
     order: "tl.tl_date DESC",
     key: "tl.tl_id",
   },
@@ -344,6 +350,9 @@ export const ENTITIES = {
     dims: ["batch", "center"],
     date: "ta.ta_date",
     list: ["u.user_name AS trainer", "ta.ta_date AS date", "ta.checkin_time AS check_in", "ta.checkout_time AS check_out", "ta.center_id"],
+    idents: { name: "u.user_name" },
+    // "late" compares check-ins with class_schedules (see executor.lateCheck)
+    late: true,
     order: "ta.ta_date DESC",
     defaultOp: "list",
     key: "ta.ta_id",
@@ -419,6 +428,7 @@ export const ENTITIES = {
   },
   master_trainer: {
     words: ["master trainer", "master trainers", "mt", "mts", "supervisor", "supervisors"],
+    defaultOp: "list",
     singular: "master trainer",
     plural: "master trainers",
     from: "mastertrainers mt LEFT JOIN `user` u ON u.user_id = mt.user_id",
@@ -507,6 +517,7 @@ export const ENTITIES = {
     dims: ["status", "batch"],
     date: "we.we_week_start",
     list: ["u.user_name AS trainer", "we.we_week_start AS week_start", "we.we_week_end AS week_end", "we.we_status AS status"],
+    idents: { name: "u.user_name" },
     order: "we.we_week_start DESC",
     key: "we.we_id",
   },
@@ -551,7 +562,7 @@ export const ENTITIES = {
 };
 
 /** Operations the engine supports. */
-export const OPS = ["count", "count_by", "list", "details", "sum", "avg", "top", "current", "help"];
+export const OPS = ["count", "count_by", "list", "details", "sum", "avg", "top", "current", "late", "help"];
 
 /**
  * Check every entity against the live schema; drop the ones whose tables or

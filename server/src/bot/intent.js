@@ -35,7 +35,9 @@ const CANNED = [
     en: "You're welcome! 😊 Anything else you'd like to know?",
     ur: "خوش آمدید! 😊 کچھ اور معلوم کرنا ہو تو بتائیں۔",
   },
-  { re: /^(ok+|okay|okk+|k|acha|achha|theek hai|thik hai|fine|great|nice|good|cool|👍)$/, en: "👍 Let me know if you need anything else." },
+  { re: /^(ok+|okay|okk+|k|acha+|achha|theek hai|thik hai|fine|great|nice|good|cool|awesome|super|wow|excellent|amazing|nice (one|work|job)|good (one|work|job)|great (work|job)|wah|👍|👌|🔥)$/, en: "👍 Let me know if you need anything else." },
+  { re: /^(lol|haha+|hehe+|😂|🤣|😅)$/, en: "😄 Anything else I can look up for you?" },
+  { re: /^(haa+n|han|yes+|yeah|yep|ji|jee|ji haan|no+|nope|nahi+n?)$/, en: "👍 Okay! What would you like to know from the LMS data?" },
   {
     re: /^((what|who) (are|r) (you|u)( exactly)?|what is this( bot)?|whats your name|what is your name|your name|who (made|built|created|developed) you|are you (a )?(bot|human|ai|robot)|tum kon ho|tum kaun ho|ap kon ho|aap kon ho|aap kaun hain|ap kaun ho|tumhara naam kya hai|aap ka naam|introduce yourself|آپ کون ہیں)$/,
     en:
@@ -63,7 +65,7 @@ export function smallTalkReply(text) {
     .replace(/[!.,?؟۔😊🙂👋🙏]+/gu, " ")
     .replace(/\s+/g, " ")
     .trim()
-    .replace(/ (bhai|bro|sir|dear|there|ji|jee)$/, "");
+    .replace(/( (bhai|bro|sir|dear|there|ji|jee|man|dude|yaar|yar|buddy|boss))+$/, "");
   for (const c of CANNED) {
     if (c.re.test(t)) return URDU_SCRIPT.test(raw) && c.ur ? c.ur : c.en;
   }
