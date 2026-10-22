@@ -79,17 +79,25 @@ export function lookupName(d, kind, id) {
 // ---- resolvers ------------------------------------------------------------
 
 /** "batch 10", "b10", "10th batch", "current batch" → [{id,name}] */
+// Batch numbers written as words, 1-20 (English, ordinals, Roman Urdu with common spellings).
 const NUM_WORDS = {
-  one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12,
-  first: 1, second: 2, third: 3, fourth: 4, fifth: 5, sixth: 6, seventh: 7, eighth: 8, ninth: 9, tenth: 10,
-  ek: 1, do: 2, teen: 3, char: 4, panch: 5, chay: 6, saat: 7, aath: 8, nau: 9, das: 10, dus: 10,
+  one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+  eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19, twenty: 20,
+  ek: 1, do: 2, teen: 3, char: 4, chaar: 4, panch: 5, paanch: 5, chay: 6, chhe: 6, chhay: 6, cheh: 6, saat: 7, sat: 7, aath: 8, ath: 8, nau: 9, no: 9, das: 10, dus: 10,
+  gyarah: 11, gyara: 11, giyara: 11, barah: 12, bara: 12, baara: 12, terah: 13, tera: 13, chaudah: 14, choda: 14, chauda: 14,
+  pandrah: 15, pandra: 15, solah: 16, sola: 16, satrah: 17, satra: 17, atharah: 18, athara: 18, unees: 19, unnees: 19, bees: 20, bis: 20,
 };
+const ORDINALS = {
+  first: 1, second: 2, third: 3, fourth: 4, fifth: 5, sixth: 6, seventh: 7, eighth: 8, ninth: 9, tenth: 10,
+  eleventh: 11, twelfth: 12, thirteenth: 13, fourteenth: 14, fifteenth: 15, sixteenth: 16, seventeenth: 17, eighteenth: 18, nineteenth: 19, twentieth: 20,
+};
+const BATCH_WORD_RE = new RegExp(
+  `\\b(batch|btch|session)\\s+(${Object.keys(NUM_WORDS).join("|")})\\b|\\b(${Object.keys(ORDINALS).join("|")})\\s+(batch|session)\\b`,
+  "g"
+);
 
 export function resolveBatch(d, text) {
-  const t = fold(text).replace(
-    /\b(batch|btch|session)\s+(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|ek|do|teen|char|panch|chay|saat|aath|nau|das|dus)\b|\b(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)\s+(batch|session)\b/g,
-    (m, a, w1, w2, b) => (w1 ? `${a} ${NUM_WORDS[w1]}` : `batch ${NUM_WORDS[w2]}`)
-  );
+  const t = fold(text).replace(BATCH_WORD_RE, (m, a, w1, w2) => (w1 ? `${a} ${NUM_WORDS[w1]}` : `batch ${ORDINALS[w2]}`));
   if (!d.batches.length) return null;
   if (/\b(current|running|ongoing|latest|present|this|abhi|new|newest|recent|chal rah[ai])\s+(batch|session|intake)\b/.test(t) || /\bbatch\s+(current|running|ongoing|latest)\b/.test(t)) {
     const b = d.batches.at(-1);
