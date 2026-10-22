@@ -21,6 +21,7 @@ const USER_HELP = () =>
     "Commands:",
     "• /help — this message",
     "• /reset — forget our conversation",
+    "• /llm <question> — let the AI answer (it can write its own query); or just mention _llm_ in your message",
   ].join("\n");
 
 const ADMIN_HELP = () =>
@@ -33,6 +34,8 @@ const ADMIN_HELP = () =>
     "• /list — show allowed numbers",
     "• /status — check AI, database, voice and WhatsApp",
     "• /refresh — reload the database schema",
+    "• /learn <question> — the AI works it out, answers, and I remember it (and similar phrasings)",
+    "• /learn <question> = <plain question> — teach the meaning yourself",
     "• /learned [pending] — query patterns the bot learned",
     "• /approve <id> · /disable <id> · /forget <id> — manage a learned pattern",
   ].join("\n");

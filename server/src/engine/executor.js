@@ -1,6 +1,6 @@
 import { config } from "../config.js";
 import { guardSql } from "../db/sqlGuard.js";
-import { lookupName } from "./dictionary.js";
+import { lookupName, localNow } from "./dictionary.js";
 import { scoreMatch } from "../db/catalog.js";
 
 // Plan → fixed, parameterized, read-only SQL. Only expressions from entities.js
@@ -190,7 +190,7 @@ const lateGrace = () => config.engine.lateGraceMin;
 async function lateCheck(plan, { entities, query }) {
   const e = entities.trainer_attendance;
   if (!plan.filters?.date) {
-    const now = new Date();
+    const now = localNow();
     const today = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`;
     plan.filters = { ...plan.filters, date: { from: today, to: today, label: "today" } };
   }
@@ -280,6 +280,10 @@ async function lateCheck(plan, { entities, query }) {
     return c.length ? [...new Set(c)] : [fallback];
   };
 
+  const grace = plan.grace ?? lateGrace();
+  const now = localNow();
+  const today = ymd(now);
+  const nowMin = now.getHours() * 60 + now.getMinutes();
   const rows = checkins.map((r) => {
     const inAt = clockMinutes(r.check_in);
     const s = scheduleFor(r.center_id, coursesOf(r.t_id, r.center_id, r.tb_id, r.course_id), r.tb_id, r.date, inAt);
@@ -288,16 +292,18 @@ async function lateCheck(plan, { entities, query }) {
     let minutes = null;
     if (s && start !== null && inAt !== null) {
       minutes = inAt - start;
-      status = !isClassDay(s.days, r.date) ? "no_class_day" : minutes > lateGrace() ? "late" : "on_time";
+      status = !isClassDay(s.days, r.date) ? "no_class_day" : minutes > grace ? "late" : "on_time";
     }
-    // Checked out before the class ended (no check-out yet = still there, not early).
+    // Checked out before the class ended. No check-out at all is its own problem once
+    // the class is over (earlier days, or today after the end time).
     const outAt = clockMinutes(r.check_out);
     const end = s ? clockMinutes(s.end_time) : null;
-    const leftEarly = status !== "no_class_day" && outAt !== null && end !== null && outAt < end - lateGrace() ? end - outAt : null;
+    const leftEarly = status !== "no_class_day" && outAt !== null && end !== null && outAt < end - grace ? end - outAt : null;
+    const noCheckout = status !== "no_class_day" && outAt === null && (ymd(r.date) < today || (end !== null && nowMin > end + grace));
     return {
       trainer: r.trainer, date: ymd(r.date), check_in: hhmm(inAt), check_out: outAt === null ? null : hhmm(outAt),
       class_start: s?.start_time ?? null, class_end: s?.end_time ?? null, minutes_late: minutes, left_early: leftEarly,
-      status, center_id: r.center_id, course_id: s?.course_id ?? r.course_id,
+      no_checkout: noCheckout, status, center_id: r.center_id, course_id: s?.course_id ?? r.course_id,
     };
   });
 
@@ -315,7 +321,7 @@ async function lateCheck(plan, { entities, query }) {
       missing.push({ trainer: a.trainer, center_id: a.center_id, course_id: a.course_id, class_start: s.start_time });
     }
   }
-  return { rows, missing, ignoredName };
+  return { rows, missing, ignoredName, grace };
 }
 
 const LATE_LIST = 25;
@@ -331,7 +337,10 @@ function formatLate(plan, res, { dict }) {
   const offDay = by("no_class_day");
   const early = res.rows.filter((r) => r.left_early).sort((a, b) => b.left_early - a.left_early);
   const clsEnd = (r) => (r.class_end ? prettyValue(r.class_end) : "—");
-  const leftNote = (r) => (r.left_early ? `\n    🏃 left *${r.left_early} min early* — out ${r.check_out}, class ends ${clsEnd(r)}` : "");
+  const leftNote = (r) =>
+    r.left_early ? `\n    🏃 left *${r.left_early} min early* — out ${r.check_out}, class ends ${clsEnd(r)}` : r.no_checkout ? `\n    ⚠️ *no check-out* (class ended ${clsEnd(r)})` : "";
+  const noOut = res.rows.filter((r) => r.no_checkout);
+  const grace = res.grace ?? lateGrace();
 
   if (plan.ident) {
     if (!res.rows.length) return `🔍 No check-in found for *${plan.ident.display}* ${when}.\n_Either they didn't check in, or the name is spelled differently — try_ _trainer attendance ${when}_.`;
@@ -350,7 +359,7 @@ function formatLate(plan, res, { dict }) {
 
   if (!res.rows.length && !res.missing.length) return `🕒 No trainer check-ins ${when}.${scopeText(plan)}`;
   const parts = [
-    `🕒 *Trainer punctuality*${scopeText(plan)}\n_Check-in vs class start, check-out vs class end · ${lateGrace()} min grace_${
+    `🕒 *Trainer punctuality*${scopeText(plan)}\n_Check-in vs class start, check-out vs class end${grace ? ` · ${grace} min grace` : " · exact times"}_${
       res.ignoredName ? `\n_(no trainer named "${res.ignoredName}", so showing everyone)_` : ""
     }`,
   ];
@@ -370,8 +379,10 @@ function formatLate(plan, res, { dict }) {
           .join("\n")}`
       : "🏃 *Left early: 0*"
   );
-  if (onTime.length) parts.push(`✅ *On time: ${onTime.length}*\n${onTime.slice(0, LATE_LIST).map((r) => `• ${r.trainer} — ${r.check_in} (class ${cls(r)})`).join("\n")}`);
-  if (res.missing.length) parts.push(`🚫 *Not checked in: ${res.missing.length}*\n${res.missing.slice(0, LATE_LIST).map((r) => `• ${r.trainer || "Unknown"} — ${place(r)} (class ${cls(r)})`).join("\n")}`);
+  if (noOut.length)
+    parts.push(`⚠️ *Didn't check out: ${noOut.length}*\n${noOut.slice(0, LATE_LIST).map((r) => `• ${r.trainer} — in ${r.check_in} · class ended ${clsEnd(r)} · ${place(r)}`).join("\n")}`);
+  if (res.missing.length) parts.push(`🚫 *Check-in missing: ${res.missing.length}*\n${res.missing.slice(0, LATE_LIST).map((r) => `• ${r.trainer || "Unknown"} — ${place(r)} (class ${cls(r)})`).join("\n")}`);
+  if (onTime.length) parts.push(`✅ *On time: ${onTime.length}*\n${onTime.slice(0, LATE_LIST).map((r) => `• ${r.trainer} — in ${r.check_in} (class ${cls(r)})${r.check_out ? ` · out ${r.check_out} (ends ${clsEnd(r)})` : ""}`).join("\n")}`);
   if (offDay.length) parts.push(`📅 *Checked in on a non-class day: ${offDay.length}*\n${offDay.slice(0, 10).map((r) => `• ${r.trainer} — ${r.check_in}`).join("\n")}`);
   if (noSched.length) parts.push(`❔ *No class schedule found: ${noSched.length}*\n${noSched.slice(0, 10).map((r) => `• ${r.trainer} — ${r.check_in} · ${place(r)}`).join("\n")}`);
   return parts.join("\n\n");

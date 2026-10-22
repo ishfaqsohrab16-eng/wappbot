@@ -62,8 +62,12 @@ services:
       LLM_MAX_USER_CHARS: ${LLM_MAX_USER_CHARS:-2000}
       LLM_MAX_AGENT_STEPS: ${LLM_MAX_AGENT_STEPS:-4}
 
-      # Query engine (fixed read-only handlers; the LLM never writes SQL)
+      # Query engine (fixed read-only handlers; the LLM writes SQL only when a user names it)
       ENGINE_LLM_FALLBACK: ${ENGINE_LLM_FALLBACK:-true}
+      ALLOW_LLM_SQL: ${ALLOW_LLM_SQL:-true}
+      APP_TIMEZONE: ${APP_TIMEZONE:-Asia/Karachi}
+      TRAINER_LATE_GRACE_MIN: ${TRAINER_LATE_GRACE_MIN:-0}
+      STT_LANGUAGE: ${STT_LANGUAGE:-}
       LEARN_MIN_CONFIDENCE: ${LEARN_MIN_CONFIDENCE:-0.6}
       LEARN_ACTIVE_CONFIDENCE: ${LEARN_ACTIVE_CONFIDENCE:-0.8}
       RESULT_CACHE_MS: ${RESULT_CACHE_MS:-60000}

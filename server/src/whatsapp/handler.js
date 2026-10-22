@@ -3,7 +3,7 @@ import { log, recordActivity } from "../logger.js";
 import { normalizePhone } from "../util/phone.js";
 import { createRateLimiter } from "../util/rateLimit.js";
 import { toAppError } from "../util/errors.js";
-import { isAllowed, touchUser } from "../store/users.js";
+import { isAllowed, touchUser, isAdmin } from "../store/users.js";
 import { handleCommand } from "../bot/commands.js";
 import { runAssistant } from "../bot/assistant.js";
 import { transcribe, sttEnabled } from "../stt/transcribe.js";
@@ -150,7 +150,8 @@ async function processMessage({ data, phone, replyTo, content, name }) {
   }
 
   // Commands are cheap; they skip the rate limit and the LLM.
-  if (content.kind === "text" && /^[/!]\w/.test(text)) {
+  // /learn goes to the assistant (it answers with data and may send files).
+  if (content.kind === "text" && /^[/!]\w/.test(text) && !/^[/!](learn|teach|llm|ai|gpt)\b/i.test(text)) {
     const reply = await handleCommand(phone, text);
     if (reply) {
       await sendText(replyTo, reply);
@@ -205,7 +206,7 @@ async function processMessage({ data, phone, replyTo, content, name }) {
           notes = notes.then(() => sendText(replyTo, note)).catch(() => {});
         }
       : undefined;
-    const result = await runAssistant({ text, historyKey: phone, language, onProgress });
+    const result = await runAssistant({ text, historyKey: phone, language, onProgress, isAdmin: isAdmin(phone) });
     await notes;
     const prefix = content.kind === "audio" && config.bot.echoTranscript ? `🎤 _${text}_\n\n` : "";
     await sendText(replyTo, prefix + result.reply);

@@ -4,7 +4,8 @@ import { activeEntities } from "./entities.js";
 import { getDictionary, resolveBatch, resolveCenter, resolveCourse, resolveEnum, resolveDate } from "./dictionary.js";
 import { parse, slotKey, extractIdent, isFollowUpText, isGenericKey } from "./parser.js";
 import { execute, formatReply, helpText, humanizeRow, filterSummary, CHAT_LIST_ROWS } from "./executor.js";
-import { findLearned, learn, touchLearned, learnedSynonyms, learnWord, linkWord } from "./learned.js";
+import { findLearned, learn, touchLearned, learnedSynonyms, learnWord, linkWord, learnSql, findLearnedSql } from "./learned.js";
+import { agentDecide, runAgentSql, formatAgentRows } from "./agent.js";
 import { editDistance } from "./dictionary.js";
 import { fold } from "../db/catalog.js";
 import { excelFile, chartFile, wordFile } from "./files.js";
@@ -26,6 +27,44 @@ function restates(content, plan) {
   const own = parse(content, { dict: restates.dict, entities: restates.entities });
   return own.entity === plan.entity && own.op === plan.op && own.confidence >= RULE_MIN_CONFIDENCE;
 }
+/**
+ * /learn: save the message, the LLM's paraphrases of it (English, Roman Urdu, Urdu)
+ * and its new words as trusted patterns. Paraphrases the rules already route the
+ * same way are skipped (nothing to learn). Returns what was saved.
+ */
+function teachAll({ text, key, plan, base, dict, entities, paraphrases }) {
+  const mapping = { op: plan.op, entity: plan.entity, dim: plan.dim || null };
+  const understood = (p) => p.op === mapping.op && p.entity === mapping.entity && (!mapping.dim || p.dim === mapping.dim) && p.confidence >= RULE_MIN_CONFIDENCE;
+  const taught = { mapping, main: null, phrases: [], known: 0, words: [] };
+  if (!isGenericKey(key)) taught.main = learn({ key, mapping, confidence: 1, source: "teach", example: text, override: true }).entry || null;
+  // The words the rules didn't know carry the meaning (at most two, so filler isn't learned).
+  const unknown = (base.unknown || []).filter((w) => /^[a-z]{4,}$/.test(w));
+  if (base.entity !== plan.entity && unknown.length && unknown.length <= 2 && plan.ident?.type !== "name") {
+    for (const w of unknown) {
+      const lw = learnWord({ word: w, entity: plan.entity, confidence: 1, example: text });
+      if (!lw.entry) continue;
+      taught.words.push(w);
+      if (taught.main) linkWord(taught.main, lw.entry);
+    }
+  }
+  const list = Array.isArray(paraphrases) ? paraphrases : [];
+  for (const raw of list.slice(0, 12)) {
+    const s = String(raw || "").trim().slice(0, 160);
+    if (!s || s.toLowerCase() === text.toLowerCase()) continue;
+    const pp = parse(s, { dict, entities, synonyms: learnedSynonyms() });
+    if (understood(pp)) {
+      taught.known++;
+      continue;
+    }
+    const k = slotKey(pp);
+    if (isGenericKey(k)) continue;
+    const r = learn({ key: k, mapping, confidence: 1, source: "teach", example: s, override: true });
+    if (r.entry) taught.phrases.push(s);
+  }
+  log.info(`Taught "${key}" → ${mapping.op}/${mapping.entity}: ${taught.phrases.length} paraphrases, ${taught.known} already known, words [${taught.words.join(", ")}]`);
+  return taught;
+}
+
 const describe = (p) => (p ? `${p.op} of ${p.entity}${p.dim ? ` by ${p.dim}` : ""}` : "something else");
 let active = null; // { schemaAt, entities, problems }
 
@@ -87,7 +126,7 @@ function catalogText(entities) {
     .join("\n");
 }
 
-function classifyPrompt(entities, { text, lastText, transcript, correction }) {
+function classifyPrompt(entities, { text, lastText, transcript, correction, teach = false }) {
   return [
     {
       role: "system",
@@ -102,6 +141,9 @@ function classifyPrompt(entities, { text, lastText, transcript, correction }) {
         '- clarify: also give "suggest": the most likely question rewritten in plain English (e.g. "late trainers today"), so a "yes" can run it.',
         '- late (trainer_attendance only): who was late / on time vs the class schedule; ident {"type":"name"} for one trainer.',
         "- Follow the user's latest correction if they say a previous answer was wrong.",
+        teach
+          ? '- TEACH MODE: an admin is teaching you this phrasing. Answer with type "data" if at all possible, and add "paraphrases": 8 other short ways staff would ask exactly the same thing (mix English, Roman Urdu and Urdu script; keep any names, numbers, centers and dates).'
+          : "",
         "confidence: 0-1, how sure you are about op+entity. Users write English, Urdu or Roman Urdu with typos.",
       ].join("\n"),
     },
@@ -243,8 +285,103 @@ export async function answer(text, ctx) {
       reply: "I have *read-only* access: I can look things up, count, list and export, but I can't change records or send emails/messages. Please do that in the LMS portal.",
     };
 
+  // The user named the LLM: it decides — built-in query, its own SQL, or a plain reply.
+  if (ctx.agent && ctx.llm) {
+    const actx = { schema: ctx.schema, entities, dict, question: text, transcript: ctx.transcript, lastText: ctx.lastText, llm: ctx.llm };
+    out.llmCalls++;
+    let d = await agentDecide(actx);
+    if (!d) return { ...out, handled: true, kind: "clarify", plan, reply: "🧠 The AI couldn't answer that right now. Please try again in a moment, or ask without _llm_ to use the built-in answers." };
+    if (d.action === "reply") return { ...out, handled: true, kind: "reply", plan, source: "agent", reply: `🧠 ${String(d.reply || "").trim() || "I couldn't find that in the LMS data."}` };
+    if (d.action === "sql") {
+      let rows = null;
+      let lastErr = null;
+      for (let attempt = 0; attempt < 2 && rows === null; attempt++) {
+        try {
+          rows = await runAgentSql(d.sql, ctx.query);
+        } catch (err) {
+          lastErr = err;
+          log.warn(`Agent SQL failed (try ${attempt + 1}): ${err.message} :: ${String(d.sql).slice(0, 300)}`);
+          if (attempt === 0) {
+            out.llmCalls++;
+            const fixed = await agentDecide(actx, { error: err.message.slice(0, 300), previousSql: d.sql });
+            if (!fixed || fixed.action !== "sql") {
+              if (fixed?.action === "plan" || fixed?.action === "reply") d = fixed;
+              break;
+            }
+            d = fixed;
+          }
+        }
+      }
+      if (rows !== null) {
+        const { reply, files } = await formatAgentRows(rows, { dict, title: d.title, explain: d.explain });
+        const saved = learnSql({ question: text, sql: d.sql, explain: d.explain, title: d.title });
+        if (saved.entry) log.info(`Learned AI query ${saved.entry.id} for "${text}"`);
+        return {
+          ...out,
+          handled: true,
+          kind: "data",
+          source: "agent-sql",
+          learnedId: saved.entry?.id,
+          plan: { ...plan, op: "sql", entity: null },
+          reply: `${reply}\n\n_AI-written query · saved for next time · say_ _wrong_ _if it's not right_`,
+          files,
+          rowCount: rows.length,
+        };
+      }
+      if (d.action === "reply") return { ...out, handled: true, kind: "reply", plan, source: "agent", reply: `🧠 ${d.reply}` };
+      if (d.action !== "plan")
+        return { ...out, handled: true, kind: "unsupported", plan, source: "agent", reply: `🧠 The AI's query didn't run (${String(lastErr?.message || "error").slice(0, 120)}). Try rephrasing, or ask without _llm_.` };
+    }
+    // "plan": continue with the built-in query the model picked.
+    const p = planFromLlm(d, plan, { dict, entities, text, last: ctx.last });
+    if (p) {
+      plan = p;
+      out.source = "agent";
+      out.llmConfidence = 0.9;
+    }
+  }
+
+  // An AI-written query saved for this exact question: someone asked the AI for it and
+  // didn't call it wrong, so it beats the rules' guess. ("wrong" disables it.)
+  if (!ctx.agent && !ctx.teach && !ctx.correction) {
+    const hit = findLearnedSql(text);
+    if (hit) {
+      try {
+        const rows = await runAgentSql(hit.mapping.sql, ctx.query);
+        touchLearned(hit);
+        const { reply, files } = await formatAgentRows(rows, { dict, title: hit.mapping.title, explain: hit.mapping.explain });
+        return { ...out, handled: true, kind: "data", source: "learned:sql", learnedId: hit.id, plan: { ...plan, op: "sql", entity: null }, reply, files, rowCount: rows.length };
+      } catch (err) {
+        log.warn(`Saved AI query ${hit.id} failed: ${err.message}`);
+      }
+    }
+  }
+
+  // /learn <message> = <plain question>: the admin says what it means; no guessing.
+  const teach = ctx.teach;
+  if (teach?.meaning) {
+    const mp = parse(teach.meaning, { dict, entities, synonyms: learnedSynonyms() });
+    if (!mp.entity || !mp.op || mp.confidence < RULE_MIN_CONFIDENCE)
+      return { ...out, handled: true, kind: "clarify", plan, reply: `🤔 I don't understand *${teach.meaning}* either. Write the meaning as a plain question, e.g. _/learn ${text} = late trainers today_` };
+    plan = { ...mp, filters: { ...mp.filters, ...plan.filters }, ident: plan.ident || mp.ident, text: plan.text, key, unknown: plan.unknown };
+    out.source = "teach";
+  }
+
+  // "It's wrong, today is 22 oct": no new subject, so the question was understood and the
+  // user doubts the data → run the same question again (with any new date / filter).
+  const prev = ctx.correction?.plan;
+  if (!teach && !ctx.agent && prev?.entity && ctx.correction.content) {
+    const own = parse(ctx.correction.content, { dict, entities });
+    const newWords = (own.unknown || []).filter((w) => w.length >= 4 && !CHATTY.has(w));
+    if ((!own.entity || (own.entity === prev.entity && own.op === prev.op)) && !newWords.length) {
+      plan = { ...prev, filters: { ...(prev.filters || {}), ...own.filters }, text: plan.text, key, unknown: [] };
+      out.source = "recheck";
+    }
+  }
+
   // 1-3. Learned patterns (exact, then close variants with the same slots)
-  const learned = findLearned(key);
+  const skipKnown = teach || ctx.agent || out.source === "recheck";
+  const learned = skipKnown ? null : findLearned(key);
   if (learned && !ctx.correction && (!plan.entity || !plan.op || plan.confidence < 0.75 || learned.entry.mapping.entity === plan.entity)) {
     const m = learned.entry.mapping;
     plan = { ...plan, op: m.op, entity: m.entity, dim: m.dim || plan.dim };
@@ -259,7 +396,7 @@ export async function answer(text, ctx) {
     touchLearned(learned.entry);
     out.source = `learned:${learned.match}`;
     out.learnedId = learned.entry.id;
-  } else if (plan.entity && plan.op && plan.confidence >= RULE_MIN_CONFIDENCE && !(ctx.correction && sameAs(plan, ctx.correction.plan) && !restates(ctx.correction.content, plan))) {
+  } else if (!skipKnown && plan.entity && plan.op && plan.confidence >= RULE_MIN_CONFIDENCE && !(ctx.correction && sameAs(plan, ctx.correction.plan) && !restates(ctx.correction.content, plan))) {
     out.source = "rules";
   }
 
@@ -269,9 +406,9 @@ export async function answer(text, ctx) {
     try {
       out.llmCalls++;
       const correction = ctx.correction && { question: ctx.correction.question, wrong: describe(ctx.correction.plan) };
-      const raw = await ctx.llm(classifyPrompt(entities, { text, lastText: ctx.lastText, transcript: ctx.transcript, correction }), {
+      const raw = await ctx.llm(classifyPrompt(entities, { text, lastText: ctx.lastText, transcript: ctx.transcript, correction, teach: Boolean(teach) }), {
         json: true,
-        maxTokens: 220,
+        maxTokens: teach ? 700 : 220,
         temperature: 0,
       });
       llmJson = parseJson(raw);
@@ -279,6 +416,14 @@ export async function answer(text, ctx) {
       log.warn("LLM classification failed:", err.message);
     }
     if (llmJson) {
+      if (teach && llmJson.type !== "data")
+        return {
+          ...out,
+          handled: true,
+          kind: "clarify",
+          plan,
+          reply: `🤔 I couldn't map that to LMS data${llmJson.reply ? ` (${String(llmJson.reply).trim().slice(0, 160)})` : ""}.\nTell me what it means: _/learn ${text} = <plain question>_ e.g. _= late trainers today_`,
+        };
       if (["chat", "clarify", "unsupported"].includes(llmJson.type)) {
         const reply = String(llmJson.reply || "").trim();
         if (llmJson.type === "chat") return { ...out, handled: false, chat: true, reply, plan };
@@ -294,16 +439,18 @@ export async function answer(text, ctx) {
         };
       }
       // Nothing data-like in the message ("what are you?"): never run a lookup.
-      const meaningful = ctx.correction || plan.entity || Object.keys(plan.filters).length || plan.ident || plan.unknown?.some((w) => w.length >= 4 && !CHATTY.has(w));
+      const meaningful = teach || ctx.correction || plan.entity || Object.keys(plan.filters).length || plan.ident || plan.unknown?.some((w) => w.length >= 4 && !CHATTY.has(w));
       if (!meaningful) return { ...out, handled: false, chat: true, reply: "", plan };
       const p = planFromLlm(llmJson, plan, { dict, entities, text, last: ctx.last });
       if (p) {
         plan = p;
-        out.source = "llm";
+        out.source = teach ? "teach" : "llm";
         out.llmConfidence = Math.max(0, Math.min(1, Number(llmJson.confidence) || 0));
       }
     }
   }
+  if (teach && out.source !== "teach")
+    return { ...out, handled: true, kind: "clarify", plan, reply: `🤔 The AI couldn't work that out right now. Teach it directly: _/learn ${text} = <plain question>_` };
 
   // 5. Best effort without an LLM when we at least know the subject
   if (!out.source && plan.entity && plan.op) out.source = "rules-lowconf";
@@ -343,7 +490,7 @@ export async function answer(text, ctx) {
   // Learn: the LLM's interpretation worked, so remember the phrasing.
   const found = ["count", "count_by", "sum", "avg"].includes(plan.op) || res.rows?.length || res.missing?.length;
   // A correction teaches the ORIGINAL question's phrasing, with the user's say-so.
-  if (ctx.correction?.key && found && !isGenericKey(ctx.correction.key)) {
+  if (ctx.correction?.key && found && out.source !== "recheck" && !isGenericKey(ctx.correction.key)) {
     // "Details" only made sense with the name in the correction; the bare phrasing means "show them".
     const mapping = plan.op === "details" && !LOOKUP_ENTITIES.has(plan.entity) && !/\{(cnic|rollno|phone|email|name)\}/.test(ctx.correction.key) ? { ...plan, op: "list" } : plan;
     const r = learn({ key: ctx.correction.key, mapping, confidence: 0.95, source: "feedback", example: ctx.correction.question, override: true });
@@ -352,7 +499,12 @@ export async function answer(text, ctx) {
       log.info(`Learned from correction ${r.entry.id}: "${ctx.correction.key}" → ${plan.op}/${plan.entity}`);
     }
   }
-  if (out.source === "llm" && found && !res.meta?.studentNotFound && !isGenericKey(key) && !ctx.correction) {
+  // /learn: the admin vouches for this reading — save it, its paraphrases and its new words.
+  if (teach) {
+    out.taught = teachAll({ text, key, plan, base, dict, entities, paraphrases: llmJson?.paraphrases });
+    if (out.taught.main) out.learnedId = out.taught.main.id;
+  }
+  if (["llm", "agent"].includes(out.source) && found && !res.meta?.studentNotFound && !isGenericKey(key) && !ctx.correction) {
     const conf = out.llmConfidence ?? 0;
     const r = learn({ key, mapping: plan, confidence: conf, example: text });
     if (r.entry) out.learnedId = r.entry.id;
@@ -370,11 +522,20 @@ export async function answer(text, ctx) {
     }
   }
 
+  // A doubted answer: say it was rechecked, and how to compare it with the LMS dashboard.
+  const recheckNote =
+    out.source === "recheck"
+      ? `🔁 _Rechecked from the live LMS data._\n${plan.op === "late" ? "_If your dashboard differs, send one trainer's name (e.g._ _was Ahmed Khan late today_) _and I'll show the exact times and schedule I compared._\n" : ""}\n`
+      : "";
+  const t = out.taught;
+  const taughtNote = t
+    ? `\n\n🧠 *Learned:* "${text}" → ${describe(t.mapping)}${t.phrases.length ? `\n+ ${t.phrases.length} similar phrasing${t.phrases.length > 1 ? "s" : ""}: ${t.phrases.slice(0, 4).map((s) => `_${s}_`).join(" · ")}${t.phrases.length > 4 ? " …" : ""}` : ""}${t.known ? `\n(${t.known} more I already understood)` : ""}${t.words.length ? `\n+ word${t.words.length > 1 ? "s" : ""}: ${t.words.map((w) => `*${w}*`).join(", ")}` : ""}\n_Next time this works instantly, without the AI. Say_ _wrong_ _if this answer isn't right._`
+    : "";
   return {
     ...out,
     handled: true,
     kind: "data",
-    reply,
+    reply: recheckNote + reply + taughtNote,
     files,
     plan,
     rowCount: res.rows?.length ?? 0,

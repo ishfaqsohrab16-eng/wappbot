@@ -108,7 +108,7 @@ const noLlm = (_reply, r) => assert.equal(r.llmCalls || 0, 0, "unexpected LLM ca
 test("late trainers: check-ins matched with class schedules", async () => {
   await converse([
     ["Show me todays trainer attendance", both(has(/Shafi Ullah/), noLlm)],
-    ["Match them with class scheduls", both(has(/Late: 1/), has(/Shafi Ullah\* — \*22 min late/), has(/On time: 2/), has(/Left early: 1/), has(/Early Bird\* — \*60 min early/), has(/Not checked in: 1/), has(/Absent Khan/), hasNot(/GraphicsAI_/), noLlm)],
+    ["Match them with class scheduls", both(has(/Late: 1/), has(/Shafi Ullah\* — \*22 min late/), has(/On time: 2/), has(/Left early: 1/), has(/Early Bird\* — \*60 min early/), has(/Check-in missing: 1/), has(/Absent Khan/), hasNot(/GraphicsAI_/), noLlm)],
     ["Match both of them andget me late trainers", both(has(/Late: 1/), hasNot(/No trainer found/), noLlm)],
     ["Shafi trainer aaj class ma late to ni tha", both(has(/Shafi Ullah\* was \*22 min late/), noLlm)],
     ["Shafi aaj class ma late to ni tha", both(has(/22 min late/), hasNot(/Students/), noLlm)],

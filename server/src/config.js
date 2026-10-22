@@ -24,6 +24,8 @@ export const config = {
   port: num("PORT", 3000),
   publicUrl: str("PUBLIC_URL").replace(/\/$/, ""),
   dataDir: path.resolve(str("DATA_DIR", "./data")),
+  // "Today", class times and check-ins are Pakistan wall-clock time; the container runs on UTC.
+  timezone: str("APP_TIMEZONE", "Asia/Karachi"),
   webDist: path.resolve(str("WEB_DIST", "../web/dist")),
 
   // Dashboard / API auth
@@ -87,16 +89,17 @@ export const config = {
   engine: {
     // LLM only classifies unknown questions into a plan; it never writes SQL.
     llmFallback: bool("ENGINE_LLM_FALLBACK", true),
-    // Legacy free-form text-to-SQL. Off: LLM-generated SQL is never executed.
-    allowLlmSql: bool("ALLOW_LLM_SQL", false),
+    // When a user names the LLM ("llm …", /llm), it may write its own read-only SELECT
+    // (guarded by sqlGuard, row-capped, read-only DB user). Off: built-in queries only.
+    allowLlmSql: bool("ALLOW_LLM_SQL", true),
     learnMinConfidence: num("LEARN_MIN_CONFIDENCE", 0.6),
     learnActiveConfidence: num("LEARN_ACTIVE_CONFIDENCE", 0.8),
     resultCacheMs: num("RESULT_CACHE_MS", 60000),
     exportMaxRows: num("EXPORT_MAX_ROWS", 5000),
     autoExcel: bool("AUTO_EXCEL", true),
     autoChart: bool("AUTO_CHART", true),
-    // Minutes after class start before a trainer check-in counts as late.
-    lateGraceMin: num("TRAINER_LATE_GRACE_MIN", 10),
+    // Minutes of slack before a check-in counts as late / a check-out as early (0 = strict, like the LMS dashboard).
+    lateGraceMin: num("TRAINER_LATE_GRACE_MIN", 0),
   },
 
   // Text-to-speech for voice replies (OpenAI-compatible /v1/audio/speech, e.g. Kokoro)

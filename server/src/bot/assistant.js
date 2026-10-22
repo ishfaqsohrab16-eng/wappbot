@@ -15,6 +15,7 @@ import { knowledgeAnswer, teamAnswer } from "../knowledge/digibizz.js";
 import { confirmLearned, rejectLearned, seedPhrasebook } from "../engine/learned.js";
 import { PHRASES_1000 } from "../knowledge/phrasebook.js";
 import { romanizeUrdu } from "../engine/urdu.js";
+import { AGENT_RE, stripAgentWords } from "../engine/agent.js";
 import { extractIdent, parse, slotKey } from "../engine/parser.js";
 
 // Swappable for tests.
@@ -128,7 +129,26 @@ export async function runAssistant(p) {
     return { files: [], ...result, ms };
   };
 
-  const last0 = getLastLookup(key);
+  // /learn <message> [= <plain question>]: always ask the LLM (or use the given meaning),
+  // then save the phrasing, paraphrases and new words for everyone. Admins only.
+  const learnCmd = text.match(/^[/!](?:learn|teach)\b\s*([\s\S]*)$/i);
+  let teaching = null;
+  if (learnCmd) {
+    const say = (reply) => {
+      p.onToken?.(reply);
+      return finish({ action: "reply", reply, source: "teach" });
+    };
+    if (p.isAdmin === false) return say("🔒 Only admins can teach me new questions. Ask an admin, or just tell me _wrong_ when an answer isn't right.");
+    const body = learnCmd[1].trim();
+    if (!body)
+      return say(
+        "🧠 *Teach me a question*\n• _/learn who came late today_ — I ask the AI what it means, answer it, and remember it (plus similar ways of asking)\n• _/learn late kon tha = late trainers today_ — you tell me what it means"
+      );
+    const m = body.match(/^([\s\S]+?)\s*(?:=>|->|→|=)\s*([\s\S]+)$/);
+    teaching = m ? { message: m[1].trim(), meaning: m[2].trim() } : { message: body, meaning: null };
+  }
+
+  const last0 = teaching ? null : getLastLookup(key);
   const roman = romanizeUrdu(text).toLowerCase().replace(/[!.,?؟۔]+/g, " ").replace(/\s+/g, " ").trim();
 
   // "Yes" to a question the bot asked ("Did you mean late trainers today?")
@@ -154,24 +174,42 @@ export async function runAssistant(p) {
       const x = rejectLearned(last0.learnedId);
       if (x) log.info(`User rejected learned pattern ${x.id} → ${x.status}`);
     }
-    const content = last0.awaitingCorrection ? roman : correctionContent(roman);
-    if (content.split(" ").filter((w) => w.length >= 3).length === 0) {
+    // "wrong response ask llm": the user wants the AI to read it, not the rules.
+    const askLlm = AGENT_RE.test(roman);
+    if (askLlm) p = { ...p, _agent: true };
+    const content = stripAgentWords(last0.awaitingCorrection ? roman : correctionContent(roman));
+    const hasContent = content.split(" ").filter((w) => w.length >= 3).length > 0;
+    if (!hasContent && !askLlm) {
       setLastLookup(key, { ...last0, learnedId: null, awaitingCorrection: true });
-      const reply = "🙏 Sorry about that! What did you want instead? e.g. _trainers, not students_ · _total amount, not count_ · _today only_";
+      const reply = "🙏 Sorry about that! What did you want instead? e.g. _trainers, not students_ · _total amount, not count_ · _today only_\n_Or say_ _ask llm_ _to let the AI read your question again._";
       p.onToken?.(reply);
       return finish({ action: "clarify", reply, source: "feedback" });
     }
-    p = { ...p, text: `${last0.question} ${content}`, _correction: { question: last0.question, key: last0.key, plan: last0.plan, content } };
+    const asked = hasContent ? `${last0.question} ${content}` : last0.question;
+    p = { ...p, text: asked, _correction: { question: last0.question, key: last0.key, plan: last0.plan, content: hasContent ? content : "" } };
   }
 
-  const canned = p._fromYes || p._correction ? null : smallTalkReply(text);
+  // "llm who was late today", "/llm …", "ask ai …": the LLM decides how to answer
+  // (built-in query, its own SQL, or a reply). Bare "ask llm" re-asks the last question.
+  if (!teaching && !p._correction && (AGENT_RE.test(roman) || /^[/!](llm|ai|gpt)\b/i.test(text))) {
+    const q = stripAgentWords(text);
+    const lastQ = getLastLookup(key)?.question;
+    if (!q.split(" ").filter((w) => w.length >= 3).length && !lastQ) {
+      const reply = "🧠 What should I ask the AI? e.g. _llm which trainers were late or left early today_";
+      p.onToken?.(reply);
+      return finish({ action: "clarify", reply, source: "agent" });
+    }
+    p = { ...p, _agent: true, text: q.split(" ").filter((w) => w.length >= 3).length ? q : lastQ };
+  }
+
+  const canned = p._fromYes || p._correction || teaching || p._agent ? null : smallTalkReply(text);
   if (canned) {
     p.onToken?.(canned);
     return finish({ action: "reply", reply: canned, source: "canned" });
   }
 
   // General questions about the DigiBizz program (fee, stipend, eligibility, …)
-  const kb = p._correction ? null : knowledgeAnswer(text, { hasIdent: Boolean(extractIdent(text)) }) || teamAnswer(text);
+  const kb = p._correction || teaching || p._agent ? null : knowledgeAnswer(text, { hasIdent: Boolean(extractIdent(text)) }) || teamAnswer(text);
   if (kb) {
     p.onToken?.(kb.answer);
     return finish({ action: "reply", reply: kb.answer, source: `knowledge:${kb.id}` });
@@ -189,14 +227,14 @@ export async function runAssistant(p) {
   const schema = await deps.getSchema();
   if (!schema.tables.size) return finish({ action: "reply", reply: await chatReply(true), llmCalls: 1 });
 
-  const last = p._correction ? null : getLastLookup(key);
-  const work = p._correction ? p.text : text;
+  const last = p._correction || teaching ? null : getLastLookup(key);
+  const work = teaching ? teaching.message : p._correction || p._agent ? p.text : text;
   let noted = false;
-  const llm = config.engine.llmFallback
+  const llm = config.engine.llmFallback || teaching || p._agent
     ? async (messages, opts) => {
         if (!noted) {
           noted = true;
-          p.onProgress?.("🤔 _Working out what you need…_");
+          p.onProgress?.(teaching ? "🧠 _Learning this with the AI…_" : p._agent ? "🧠 _Asking the AI…_" : "🤔 _Working out what you need…_");
         }
         llmCallCount++;
         return deps.chat(messages, { ...opts, signal: p.signal });
@@ -210,13 +248,15 @@ export async function runAssistant(p) {
     last: last?.plan,
     lastText: last?.question,
     correction: p._correction,
+    agent: Boolean(p._agent),
+    teach: teaching ? { meaning: teaching.meaning } : null,
     llm,
     transcript: transcript(history.slice(-4), 600),
   });
 
   if (r.handled) {
     if (r.kind === "data") {
-      const question = p._correction ? p._correction.question : text;
+      const question = p._correction ? p._correction.question : teaching ? teaching.message : p._agent ? p.text : text;
       const k = p._correction ? p._correction.key : r.plan.key;
       setLastLookup(key, { plan: compactPlan(r.plan), question, key: k, rowCount: r.rowCount, learnedId: r.learnedId || null, at: Date.now() });
     } else if (r.kind === "clarify") {

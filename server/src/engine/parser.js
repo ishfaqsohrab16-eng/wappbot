@@ -193,6 +193,8 @@ const NOT_NAME = new Set(
   "there their sum summed amount amounts approved figure total yes haan han ji jee no nope wrong galat correct sahi meant mean said asked " +
   "zara zra jaldi fatafat bhai bhae yar yaar janab jee ji sahab sb plz " +
   "anyone anybody someone somebody everyone everybody nobody none koi kisi kaun kon " +
+  "ask llm ai gpt chatgpt bot want wanted need needed tell told gave shown know think look looking checked again still just only same dashboard portal mine " +
+  "didnt didn didn't checkout missing ones one two three four five six seven eight nine ten while " +
   "left early came come went leave leaving response responses reply answer incorrect today todays was were who whom which lecture").split(" ")
 );
 
@@ -409,7 +411,17 @@ export function parse(text, { dict, entities, last, synonyms = {} } = {}) {
   const isNameWord = (w) => /^[a-z]{3,}$/.test(w) && !known.has(w) && !consumedLabels.has(w) && !NOT_NAME.has(w);
   // "was Shafi late today", "Shafi trainer late": the trainer's name narrows the check.
   if (plan.op === "late" && !plan.ident && !hasUrdu(text)) {
-    const words = t.split(" ").filter(isNameWord);
+    // When the user capitalises anything past the first letter, names are the capitalised words
+    // ("was Shafi late"), so "I wanted trainers…" / "ask llm" never become a name.
+    const raw = String(text);
+    const usesCaps = /[A-Z]/.test(raw.slice(1));
+    const capitalised = (w) => {
+      const i = raw.toLowerCase().search(new RegExp(`(^|[^a-z])${w}([^a-z]|$)`));
+      if (i < 0) return false;
+      const at = /[a-z]/i.test(raw[i]) ? i : i + 1;
+      return /[A-Z]/.test(raw[at]);
+    };
+    const words = t.split(" ").filter((w) => isNameWord(w) && (!usesCaps || capitalised(w)));
     if (words.length >= 1 && words.length <= 3)
       plan.ident = { type: "name", value: words.join(" "), display: words.map((w) => w[0].toUpperCase() + w.slice(1)).join(" ") };
   }
@@ -531,6 +543,8 @@ export function parse(text, { dict, entities, last, synonyms = {} } = {}) {
   let c = plan.entity && plan.op ? 0.9 : plan.op === "help" ? 0.9 : 0.2;
   c -= Math.min(0.5, unknown.length * 0.12 + urduUnknown * 0.05);
   if (plan.followUp) c = Math.max(c, 0.75);
+  // "late"/"left early" + trainers is unambiguous however much else is said around it.
+  if (plan.op === "late") c = Math.max(c, 0.8);
   plan.confidence = Math.max(0, Math.round(c * 100) / 100);
   return plan;
 }

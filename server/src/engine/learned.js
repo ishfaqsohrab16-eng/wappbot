@@ -29,7 +29,7 @@ function load() {
       // Self-healing: patterns with no data words ("what are you") are never trusted.
       let fixed = 0;
       for (const x of entries) {
-        if (x.status !== "disabled" && isGenericKey(x.key)) {
+        if (x.status !== "disabled" && x.kind !== "sql" && isGenericKey(x.key)) {
           x.status = "disabled";
           x.note = "auto-disabled: too generic";
           fixed++;
@@ -138,12 +138,12 @@ function similarity(a, b) {
  */
 export function findLearned(key) {
   load();
-  const exact = entries.find((x) => x.key === key && x.status === "active");
+  const exact = entries.find((x) => x.key === key && x.status === "active" && x.kind !== "sql");
   if (exact) return { entry: exact, match: "exact" };
   const slots = (key.match(/\{\w+\}/g) || []).sort().join();
   let best = null;
   for (const x of entries) {
-    if (x.status !== "active") continue;
+    if (x.status !== "active" || x.kind === "sql") continue;
     if ((x.key.match(/\{\w+\}/g) || []).sort().join() !== slots) continue;
     const s = similarity(key, x.key);
     if (s >= 0.8 && (!best || s > best.s)) best = { entry: x, s };
@@ -227,6 +227,48 @@ export function seedPhrasebook({ phrases, parse, slotKey, dict, entities }) {
     if (r.saved) seeded++;
   }
   return seeded;
+}
+
+// ---- AI-written queries ---------------------------------------------------
+// When the LLM answered with its own SQL and it ran, the SQL is kept for the same
+// question (dates are placeholders, so it stays right on later days). Used before
+// the LLM when the rules are unsure; "wrong" disables it like any pattern.
+
+const sqlKey = (question) =>
+  `sql: ${String(question || "")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim()}`;
+
+export function learnSql({ question, sql, explain, title }) {
+  load();
+  const key = sqlKey(question);
+  if (key.length < 10 || !sql) return { saved: false };
+  for (const x of entries) if (x.key === key && x.kind === "sql" && x.status === "active") Object.assign(x, { status: "disabled", note: "replaced by a newer AI query" });
+  const entry = {
+    id: crypto.randomBytes(4).toString("hex"),
+    key,
+    kind: "sql",
+    mapping: { op: "sql", entity: null, dim: null, sql: String(sql).slice(0, 4000), explain: String(explain || "").slice(0, 300), title: String(title || "").slice(0, 80) },
+    status: "active",
+    confidence: 0.9,
+    source: "llm-sql",
+    example: String(question || "").slice(0, 200),
+    hits: 0,
+    confirmations: 0,
+    createdAt: new Date().toISOString(),
+    lastUsedAt: null,
+  };
+  entries.push(entry);
+  save();
+  return { saved: true, entry };
+}
+
+export function findLearnedSql(question) {
+  load();
+  const key = sqlKey(question);
+  return entries.find((x) => x.kind === "sql" && x.key === key && x.status === "active") || null;
 }
 
 /** "Correct / perfect": one more confirmation; pending patterns go live after two. */

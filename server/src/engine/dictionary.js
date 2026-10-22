@@ -1,4 +1,5 @@
 import { log } from "../logger.js";
+import { config } from "../config.js";
 import { scoreMatch, fold, ident, acronym } from "../db/catalog.js";
 import { LOOKUPS } from "./entities.js";
 
@@ -296,7 +297,16 @@ export function resolveEnum(d, entityName, filter, text, entity) {
 }
 
 /** Date phrases → [from, to] (inclusive, YYYY-MM-DD). */
-export function resolveDate(text, now = new Date()) {
+/** Current wall-clock time in APP_TIMEZONE, as a Date whose local getters read that time. */
+export function localNow(tz = config.timezone) {
+  try {
+    return new Date(new Date().toLocaleString("en-US", { timeZone: tz }));
+  } catch {
+    return new Date();
+  }
+}
+
+export function resolveDate(text, now = localNow()) {
   const t = fold(text);
   const iso = (d) => d.toISOString().slice(0, 10);
   const day = (offset) => {
@@ -330,6 +340,19 @@ export function resolveDate(text, now = new Date()) {
     return { from: v, to: v, label: v };
   }
   const months = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+  // "22 oct", "oct 22", "22nd october 2026": one day
+  const MON = "(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)";
+  const dm = t.match(new RegExp(`\\b(\\d{1,2})(?:st|nd|rd|th)?\\s+(?:of\\s+)?${MON}\\b(?:\\s+(20\\d{2}))?`)) || t.match(new RegExp(`\\b${MON}\\s+(\\d{1,2})(?:st|nd|rd|th)?\\b(?:\\s+(20\\d{2}))?`));
+  if (dm) {
+    const dayFirst = /^\d/.test(dm[1]);
+    const d = Number(dayFirst ? dm[1] : dm[2]);
+    const m = months.indexOf((dayFirst ? dm[2] : dm[1]).slice(0, 3));
+    const yy = dm[3] ? Number(dm[3]) : m > mo ? y - 1 : y;
+    if (d >= 1 && d <= 31) {
+      const v = `${yy}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+      return { from: v, to: v, label: v === iso(new Date(Date.UTC(y, mo, now.getDate()))) ? "today" : `${d} ${months[m][0].toUpperCase()}${months[m].slice(1)} ${yy}` };
+    }
+  }
   const mm = t.match(/\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b(?:\s+(20\d{2}))?/);
   if (mm && !/\bmay i\b/.test(t)) {
     const m = months.indexOf(mm[1].slice(0, 3));
