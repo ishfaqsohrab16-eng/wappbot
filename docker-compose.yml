@@ -45,14 +45,15 @@ services:
       GOOGLE_COOLDOWN_MS: ${GOOGLE_COOLDOWN_MS:-900000}
       LLM_BASE_URL: ${LLM_BASE_URL:-http://wp_man_llm:11434/v1}
       LLM_API_KEY: ${LLM_API_KEY:-ollama}
-      LLM_MODEL: ${LLM_MODEL:-qwen3:8b}
-      LLM_NUM_CTX: ${LLM_NUM_CTX:-8192}
+      LLM_MODEL: ${LLM_MODEL:-qwen3:4b}
+      LLM_AUTO_PULL: ${LLM_AUTO_PULL:-true}
+      LLM_NUM_CTX: ${LLM_NUM_CTX:-4096}
       LLM_KEEP_ALIVE: ${LLM_KEEP_ALIVE:--1}
       LLM_THINK: ${LLM_THINK:-false}
       LLM_MAX_TOKENS: ${LLM_MAX_TOKENS:-800}
       LLM_BOT_MAX_TOKENS: ${LLM_BOT_MAX_TOKENS:-400}
       LLM_TEMPERATURE: ${LLM_TEMPERATURE:-0.2}
-      LLM_TIMEOUT_MS: ${LLM_TIMEOUT_MS:-120000}
+      LLM_TIMEOUT_MS: ${LLM_TIMEOUT_MS:-300000}
       LLM_CONCURRENCY: ${LLM_CONCURRENCY:-2}
       LLM_MAX_QUEUE: ${LLM_MAX_QUEUE:-10}
       LLM_RATE_LIMIT_PER_MIN: ${LLM_RATE_LIMIT_PER_MIN:-10}
@@ -60,6 +61,21 @@ services:
       LLM_HISTORY_DAYS: ${LLM_HISTORY_DAYS:-30}
       LLM_MAX_USER_CHARS: ${LLM_MAX_USER_CHARS:-2000}
       LLM_MAX_AGENT_STEPS: ${LLM_MAX_AGENT_STEPS:-4}
+
+      # Query engine (fixed read-only handlers; the LLM never writes SQL)
+      ENGINE_LLM_FALLBACK: ${ENGINE_LLM_FALLBACK:-true}
+      LEARN_MIN_CONFIDENCE: ${LEARN_MIN_CONFIDENCE:-0.6}
+      LEARN_ACTIVE_CONFIDENCE: ${LEARN_ACTIVE_CONFIDENCE:-0.8}
+      RESULT_CACHE_MS: ${RESULT_CACHE_MS:-60000}
+      EXPORT_MAX_ROWS: ${EXPORT_MAX_ROWS:-5000}
+      AUTO_EXCEL: ${AUTO_EXCEL:-true}
+      AUTO_CHART: ${AUTO_CHART:-true}
+
+      # Voice replies (text-to-speech runs in this stack)
+      TTS_BASE_URL: ${TTS_BASE_URL:-http://wb-tts:8880}
+      TTS_VOICE: ${TTS_VOICE:-af_heart}
+      TTS_MAX_CHARS: ${TTS_MAX_CHARS:-350}
+      BOT_VOICE_REPLIES: ${BOT_VOICE_REPLIES:-true}
 
       # Database tuning
       DB_ALLOWED_TABLES: ${DB_ALLOWED_TABLES:-}
@@ -104,6 +120,14 @@ services:
       - whisper-cache:/root/.cache
     expose:
       - "9000"
+
+  # Text-to-speech for voice replies (Kokoro, OpenAI-compatible API, CPU)
+  wb-tts:
+    image: ${TTS_IMAGE:-ghcr.io/remsky/kokoro-fastapi-cpu:latest}
+    restart: unless-stopped
+    cpus: ${TTS_CPUS:-2}
+    expose:
+      - "8880"
 
   wb-evolution:
     image: evoapicloud/evolution-api:${EVOLUTION_IMAGE_TAG:-v2.3.7}

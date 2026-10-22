@@ -1,0 +1,900 @@
+{
+ "activity_log": {
+  "rows": 56566,
+  "columns": [
+   "act_id",
+   "user_type",
+   "user_id",
+   "course_id",
+   "center_id",
+   "tb_id",
+   "act_type",
+   "act_descrip",
+   "act_content",
+   "act_on",
+   "act_actor_name",
+   "act_entity",
+   "act_entity_id",
+   "act_summary",
+   "act_changes",
+   "act_ip"
+  ]
+ },
+ "admins": {
+  "rows": 9,
+  "columns": [
+   "admin_id",
+   "user_id",
+   "dark_mode",
+   "admin_status",
+   "createdAt",
+   "updatedAt"
+  ]
+ },
+ "admission_control": {
+  "rows": 1,
+  "columns": [
+   "admission_id",
+   "is_global_open",
+   "createdAt",
+   "updatedAt"
+  ]
+ },
+ "admission_controls": {
+  "rows": 26,
+  "columns": [
+   "ac_id",
+   "tb_id",
+   "center_id",
+   "course_id",
+   "allowed_gender",
+   "createdAt",
+   "updatedAt"
+  ]
+ },
+ "assignment_submissions": {
+  "rows": 10431,
+  "columns": [
+   "as_submission_id",
+   "std_rollno",
+   "tb_id",
+   "center_id",
+   "course_id",
+   "as_id",
+   "submitted_on",
+   "as_submission_comment",
+   "as_submission_attachment",
+   "trainer_comments",
+   "obt_marks",
+   "as_submission_status"
+  ]
+ },
+ "assignments": {
+  "rows": 1780,
+  "columns": [
+   "as_id",
+   "as_title",
+   "as_description",
+   "as_attachment",
+   "as_deadline",
+   "as_marks",
+   "t_id",
+   "tb_id",
+   "course_id",
+   "center_id",
+   "as_added_on",
+   "as_group_id"
+  ]
+ },
+ "attendance": {
+  "rows": 326947,
+  "columns": [
+   "attend_id",
+   "std_cnic",
+   "attend_status",
+   "center_id",
+   "course_id",
+   "tb_id",
+   "attend_date"
+  ]
+ },
+ "brevo_contacts": {
+  "rows": 20,
+  "columns": [
+   "bc_id",
+   "bc_email",
+   "bc_delete_after",
+   "bc_attempts",
+   "bc_last_error",
+   "createdAt",
+   "updatedAt"
+  ]
+ },
+ "candidates": {
+  "rows": 14046,
+  "columns": [
+   "cand_id",
+   "cand_cnic",
+   "cand_photo",
+   "cand_name",
+   "cand_fathername",
+   "tb_id",
+   "course_id",
+   "center_id",
+   "cand_email",
+   "cand_phone",
+   "cand_whatsapp",
+   "cand_gender",
+   "cand_dob",
+   "cand_local_domicile",
+   "cand_degree_level",
+   "degree_area",
+   "institute",
+   "degree_start_date",
+   "degree_end_date",
+   "current_address",
+   "permanent_address",
+   "current_city",
+   "permanent_city",
+   "cand_test_code",
+   "cand_test_marks",
+   "cand_interview_marks",
+   "cand_admission_status",
+   "cand_apply_date",
+   "reject_reason",
+   "laptop_pc",
+   "recommended",
+   "course_second_priority",
+   "center_second_priority",
+   "interview_date",
+   "is_uob_student"
+  ]
+ },
+ "center_admission_mapping": {
+  "rows": 0,
+  "columns": [
+   "center_admission_id",
+   "center_id",
+   "is_open",
+   "createdAt",
+   "updatedAt"
+  ]
+ },
+ "center_course_mapping": {
+  "rows": 0,
+  "columns": [
+   "center_course_id",
+   "center_id",
+   "course_id",
+   "is_available",
+   "createdAt",
+   "updatedAt"
+  ]
+ },
+ "center_visits": {
+  "rows": 5,
+  "columns": [
+   "cv_id",
+   "mt_id",
+   "cv_center_id",
+   "cv_center_name",
+   "tb_id",
+   "cv_week_key",
+   "cv_week_start",
+   "cv_week_end",
+   "cv_visit_date",
+   "cv_visit_time",
+   "cv_answers",
+   "cv_remarks",
+   "cv_media",
+   "cv_status",
+   "cv_submitted_on",
+   "cv_reviewed_by",
+   "cv_reviewed_by_name",
+   "cv_reviewed_on",
+   "cv_review_note",
+   "cv_created_on",
+   "cv_updated_on",
+   "cv_owner_id"
+  ]
+ },
+ "centers": {
+  "rows": 12,
+  "columns": [
+   "center_id",
+   "center_name",
+   "center_location",
+   "center_type",
+   "center_medium",
+   "center_status",
+   "createdAt",
+   "updatedAt"
+  ]
+ },
+ "centers_dates": {
+  "rows": 61,
+  "columns": [
+   "cd_id",
+   "center_id",
+   "tb_id",
+   "tb_start",
+   "tb_end"
+  ]
+ },
+ "centerusers": {
+  "rows": 2,
+  "columns": [
+   "cu_id",
+   "user_id",
+   "center_id",
+   "cu_status",
+   "createdAt",
+   "updatedAt"
+  ]
+ },
+ "class_announcements": {
+  "rows": 382,
+  "columns": [
+   "ca_id",
+   "ca_title",
+   "ca_message",
+   "t_id",
+   "tb_id",
+   "course_id",
+   "center_id",
+   "ca_added_on"
+  ]
+ },
+ "class_schedules": {
+  "rows": 19,
+  "columns": [
+   "cs_id",
+   "center_id",
+   "course_id",
+   "tb_id",
+   "cs_start_date",
+   "cs_class_days",
+   "cs_start_time",
+   "cs_end_time",
+   "cs_note",
+   "createdAt",
+   "updatedAt"
+  ]
+ },
+ "courses": {
+  "rows": 4,
+  "columns": [
+   "course_id",
+   "course_name",
+   "course_full_name",
+   "course_status",
+   "createdAt",
+   "updatedAt"
+  ]
+ },
+ "daily_lecture_reports": {
+  "rows": 3077,
+  "columns": [
+   "dlr_id",
+   "t_id",
+   "center_id",
+   "course_id",
+   "tb_id",
+   "dlr_date",
+   "dlr_title",
+   "dlr_topics",
+   "dlr_practical",
+   "dlr_assignment",
+   "dlr_challenges",
+   "dlr_month"
+  ]
+ },
+ "earnings": {
+  "rows": 2278,
+  "columns": [
+   "earning_id",
+   "std_id",
+   "t_id",
+   "tb_id",
+   "center_id",
+   "course_id",
+   "earning_platform",
+   "earning_amount",
+   "earning_proof",
+   "earning_status",
+   "earning_date",
+   "earning_month",
+   "rejection_reason",
+   "earning_reject_reason",
+   "earning_reviewed_by",
+   "earning_reviewed_at"
+  ]
+ },
+ "email_campaign_recipients": {
+  "rows": 4589,
+  "columns": [
+   "ecr_id",
+   "ec_id",
+   "cand_id",
+   "ecr_email",
+   "ecr_name",
+   "course_id",
+   "ecr_status",
+   "ecr_sent_at",
+   "ecr_attempts",
+   "ecr_error",
+   "createdAt",
+   "updatedAt",
+   "std_id",
+   "ecr_merge_data"
+  ]
+ },
+ "email_campaigns": {
+  "rows": 29,
+  "columns": [
+   "ec_id",
+   "ec_name",
+   "tb_id",
+   "center_id",
+   "ec_kind",
+   "ec_source_campaign_id",
+   "ec_target_count",
+   "ec_batch_size",
+   "ec_interval_minutes",
+   "ec_min_gap_seconds",
+   "ec_max_gap_seconds",
+   "ec_next_run_at",
+   "ec_subject",
+   "ec_interview_date",
+   "ec_interview_time",
+   "ec_venue",
+   "ec_reporting_time",
+   "ec_contact_person",
+   "ec_contact_phone",
+   "ec_message",
+   "ec_status",
+   "ec_last_run_at",
+   "ec_created_by",
+   "createdAt",
+   "updatedAt",
+   "ec_custom_html",
+   "ec_audience"
+  ]
+ },
+ "email_outbox": {
+  "rows": 303,
+  "columns": [
+   "eo_id",
+   "eo_to",
+   "eo_cc",
+   "eo_bcc",
+   "eo_reply_to",
+   "eo_subject",
+   "eo_text",
+   "eo_html",
+   "eo_priority",
+   "eo_status",
+   "eo_attempts",
+   "eo_next_attempt_at",
+   "eo_last_error",
+   "eo_provider",
+   "eo_message_id",
+   "eo_sent_at",
+   "createdAt",
+   "updatedAt"
+  ]
+ },
+ "email_send_quota": {
+  "rows": 52,
+  "columns": [
+   "esq_id",
+   "esq_date",
+   "esq_total",
+   "esq_transactional",
+   "esq_campaign",
+   "createdAt",
+   "updatedAt"
+  ]
+ },
+ "email_verifications": {
+  "rows": 101,
+  "columns": [
+   "ev_id",
+   "ev_email",
+   "ev_expires_at",
+   "ev_attempts",
+   "ev_sends",
+   "ev_last_sent_at",
+   "ev_verified_at",
+   "ev_ip",
+   "createdAt",
+   "updatedAt"
+  ]
+ },
+ "exam_assessment": {
+  "rows": 3694,
+  "columns": [
+   "ea_id",
+   "std_cnic",
+   "tb_id",
+   "center_id",
+   "course_id",
+   "class_participation",
+   "final_task",
+   "presentation",
+   "viva",
+   "total_score",
+   "ea_type"
+  ]
+ },
+ "holidays": {
+  "rows": 131,
+  "columns": [
+   "h_id",
+   "h_date",
+   "h_reason",
+   "tb_id",
+   "center_id"
+  ]
+ },
+ "learning_resources": {
+  "rows": 110,
+  "columns": [
+   "ls_id",
+   "ls_title",
+   "ls_description",
+   "ls_attachment",
+   "t_id",
+   "course_id",
+   "center_id",
+   "tb_id",
+   "ls_added_on"
+  ]
+ },
+ "lecture_recordings": {
+  "rows": 562,
+  "columns": [
+   "lr_id",
+   "lr_title",
+   "lr_topics",
+   "lr_link",
+   "lr_attachment",
+   "lr_date",
+   "t_id",
+   "tb_id",
+   "course_id",
+   "center_id",
+   "lr_added_on"
+  ]
+ },
+ "login_logs": {
+  "rows": 2038,
+  "columns": [
+   "ll_id",
+   "user_id",
+   "ll_user_name",
+   "ll_user_username",
+   "ll_user_type",
+   "ll_ip",
+   "ll_forwarded_for",
+   "ll_user_agent",
+   "ll_method",
+   "ll_impersonated_by",
+   "ll_center_id",
+   "ll_course_id",
+   "ll_tb_id",
+   "ll_login_at",
+   "createdAt",
+   "updatedAt"
+  ]
+ },
+ "mastertrainers": {
+  "rows": 3,
+  "columns": [
+   "mt_id",
+   "user_id",
+   "mt_course_id",
+   "mt_added_on",
+   "mt_dark_mode",
+   "createdAt",
+   "updatedAt"
+  ]
+ },
+ "modules": {
+  "rows": 28,
+  "columns": [
+   "id",
+   "course_id",
+   "title",
+   "order_index",
+   "created_by",
+   "module_image",
+   "created_at",
+   "updated_at"
+  ]
+ },
+ "notifications": {
+  "rows": 876,
+  "columns": [
+   "id",
+   "user_id",
+   "category",
+   "title",
+   "body",
+   "link",
+   "entity_type",
+   "entity_id",
+   "created_at",
+   "read_at"
+  ]
+ },
+ "online_class_reports": {
+  "rows": 2,
+  "columns": [
+   "ocr_id",
+   "mt_id",
+   "ocr_center_id",
+   "ocr_center_name",
+   "ocr_medium",
+   "tb_id",
+   "ocr_week_key",
+   "ocr_week_start",
+   "ocr_week_end",
+   "ocr_answers",
+   "ocr_attendance",
+   "ocr_remarks",
+   "ocr_status",
+   "ocr_submitted_on",
+   "ocr_reviewed_by",
+   "ocr_reviewed_by_name",
+   "ocr_reviewed_on",
+   "ocr_review_note",
+   "createdAt",
+   "updatedAt"
+  ]
+ },
+ "student_quiz": {
+  "rows": 29,
+  "columns": [
+   "quiz_id",
+   "quiz_code",
+   "quiz_title",
+   "tb_id",
+   "t_id",
+   "quiz_tab_change",
+   "quiz_time_limit",
+   "quiz_attempts_limit",
+   "quiz_result_answers",
+   "quiz_created_on"
+  ]
+ },
+ "student_quiz_answers": {
+  "rows": 6920,
+  "columns": [
+   "sqa_id",
+   "quiz_code",
+   "attempt_session",
+   "q_id",
+   "student_answer",
+   "sqa_added_on"
+  ]
+ },
+ "student_quiz_attempts": {
+  "rows": 907,
+  "columns": [
+   "attempt_id",
+   "attempt_session",
+   "quiz_code",
+   "std_cnic",
+   "tb_id",
+   "course_id",
+   "center_id",
+   "marks_obt",
+   "attempt_date",
+   "attempt_start_time",
+   "attempt_end_time",
+   "attempt_status"
+  ]
+ },
+ "student_quiz_questions": {
+  "rows": 283,
+  "columns": [
+   "q_id",
+   "quiz_code",
+   "q_title",
+   "a1",
+   "a2",
+   "a3",
+   "a4",
+   "correct_a",
+   "correct_a_reason"
+  ]
+ },
+ "students": {
+  "rows": 6274,
+  "columns": [
+   "std_id",
+   "user_id",
+   "std_rollno",
+   "std_cnic",
+   "std_fathername",
+   "std_gender",
+   "std_qualification",
+   "std_district",
+   "std_phone",
+   "tb_id",
+   "course_id",
+   "center_id",
+   "dark_mode",
+   "std_added_on",
+   "std_lms_status",
+   "std_forum_status",
+   "suspension_reason",
+   "special_case",
+   "special_case_comments",
+   "createdAt",
+   "updatedAt"
+  ]
+ },
+ "students_docs": {
+  "rows": 13806,
+  "columns": [
+   "doc_id",
+   "std_cnic",
+   "doc_type",
+   "doc_file",
+   "doc_status",
+   "tb_id",
+   "doc_date"
+  ]
+ },
+ "students_feedback": {
+  "rows": 10908,
+  "columns": [
+   "sf_id",
+   "std_rollno",
+   "tb_id",
+   "center_id",
+   "t_id",
+   "course_id",
+   "sf_lecture",
+   "sf_queries",
+   "sf_knowledge",
+   "sf_punctuality",
+   "sf_trainer_feedback",
+   "sf_lab_clean",
+   "sf_lab_internet",
+   "sf_lab_feedback",
+   "sf_date",
+   "sf_month",
+   "sf_week"
+  ]
+ },
+ "students_freelancing_profiles": {
+  "rows": 1151,
+  "columns": [
+   "sfp_id",
+   "std_cnic",
+   "ep_name",
+   "sfp_link",
+   "sfp_status",
+   "sfp_date"
+  ]
+ },
+ "students_leaves": {
+  "rows": 896,
+  "columns": [
+   "sl_id",
+   "sl_code",
+   "std_cnic",
+   "tb_id",
+   "course_id",
+   "center_id",
+   "sl_date",
+   "sl_month",
+   "sl_subject",
+   "sl_body",
+   "sl_trainer_comments",
+   "sl_status",
+   "sl_submit_date"
+  ]
+ },
+ "ticket_replies": {
+  "rows": 2662,
+  "columns": [
+   "treply_id",
+   "ticket_no",
+   "reply_by",
+   "reply_message",
+   "reply_attachment",
+   "reply_date",
+   "reply_time"
+  ]
+ },
+ "tickets": {
+  "rows": 2394,
+  "columns": [
+   "ticket_id",
+   "ticket_no",
+   "std_rollno",
+   "ticket_subject",
+   "ticket_description",
+   "ticket_attachment",
+   "tb_id",
+   "t_id",
+   "center_id",
+   "course_id",
+   "ticket_to",
+   "ticket_date",
+   "ticket_time",
+   "ticket_status"
+  ]
+ },
+ "topics": {
+  "rows": 166,
+  "columns": [
+   "id",
+   "module_id",
+   "title",
+   "description",
+   "order_index",
+   "created_at",
+   "updated_at"
+  ]
+ },
+ "trainer_attendance": {
+  "rows": 41,
+  "columns": [
+   "ta_id",
+   "cu_id",
+   "t_id",
+   "tb_id",
+   "center_id",
+   "ta_date",
+   "checkin_time",
+   "checkout_time",
+   "checkin_photo",
+   "checkout_photo",
+   "checkin_by",
+   "checkout_by",
+   "checkin_device_time",
+   "checkout_device_time"
+  ]
+ },
+ "trainer_attendance_notes": {
+  "rows": 0,
+  "columns": [
+   "tan_id",
+   "t_id",
+   "tb_id",
+   "center_id",
+   "ta_date",
+   "kind",
+   "reason",
+   "created_by",
+   "created_at"
+  ]
+ },
+ "trainer_leaves": {
+  "rows": 7,
+  "columns": [
+   "tl_id",
+   "tl_code",
+   "t_id",
+   "tb_id",
+   "course_id",
+   "center_id",
+   "tl_date",
+   "tl_month",
+   "tl_subject",
+   "tl_body",
+   "tl_mt_comments",
+   "tl_admin_comments",
+   "tl_status",
+   "tl_submit_date"
+  ]
+ },
+ "trainer_topic_reports": {
+  "rows": 293,
+  "columns": [
+   "id",
+   "trainer_id",
+   "tb_id",
+   "course_id",
+   "center_id",
+   "module_id",
+   "topic_id",
+   "reported_date",
+   "mark_done",
+   "remarks",
+   "created_at"
+  ]
+ },
+ "trainers": {
+  "rows": 45,
+  "columns": [
+   "t_id",
+   "user_id",
+   "t_cnic",
+   "mt_id",
+   "t_course_id",
+   "t_added_on",
+   "dark_mode",
+   "t_status"
+  ]
+ },
+ "trainers_center_allocation": {
+  "rows": 190,
+  "columns": [
+   "tca_id",
+   "t_id",
+   "course_id",
+   "center_id",
+   "tb_id"
+  ]
+ },
+ "training_batches": {
+  "rows": 10,
+  "columns": [
+   "tb_id",
+   "tb_name",
+   "tb_slug",
+   "tb_descrip",
+   "tb_start",
+   "tb_end",
+   "tb_status",
+   "createdAt",
+   "updatedAt"
+  ]
+ },
+ "user": {
+  "rows": 6497,
+  "columns": [
+   "user_id",
+   "user_name",
+   "user_username",
+   "user_email",
+   "user_profile_photo",
+   "user_type",
+   "user_status",
+   "createdAt",
+   "updatedAt"
+  ]
+ },
+ "weekly_evaluations": {
+  "rows": 71,
+  "columns": [
+   "we_id",
+   "t_id",
+   "mt_id",
+   "we_week_key",
+   "we_week_start",
+   "we_week_end",
+   "we_daily",
+   "we_custom_label",
+   "we_assignments",
+   "we_quizzes",
+   "we_quality",
+   "we_mt_visit_date",
+   "we_enrolled_start",
+   "we_dropouts",
+   "we_new_enrolled",
+   "we_on_leave",
+   "we_feedback_submission",
+   "we_other_tasks",
+   "we_remarks",
+   "we_classes",
+   "we_auto",
+   "we_status",
+   "we_submitted_on",
+   "we_created_on",
+   "we_updated_on",
+   "tb_id",
+   "we_attendance",
+   "we_reviewed_by",
+   "we_reviewed_by_name",
+   "we_reviewed_on",
+   "we_review_note"
+  ]
+ }
+}

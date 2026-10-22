@@ -6,7 +6,8 @@ import { getSchema } from "../db/schema.js";
 import { collectHealth } from "../health.js";
 import { sendText } from "../whatsapp/evolution.js";
 import { log } from "../logger.js";
-import { primeCache } from "./assistant.js";
+import { warmEngine } from "./assistant.js";
+import { listLearned, setLearnedStatus, removeLearned } from "../engine/learned.js";
 
 const USER_HELP = () =>
   [
@@ -32,6 +33,8 @@ const ADMIN_HELP = () =>
     "• /list — show allowed numbers",
     "• /status — check AI, database, voice and WhatsApp",
     "• /refresh — reload the database schema",
+    "• /learned [pending] — query patterns the bot learned",
+    "• /approve <id> · /disable <id> · /forget <id> — manage a learned pattern",
   ].join("\n");
 
 const PHONE_TOKEN = /^\+?[\d\s\-()]{8,}$/;
@@ -135,8 +138,31 @@ export async function handleCommand(phone, text) {
     }
     case "refresh": {
       const s = await getSchema({ refresh: true });
-      if (!s.error) primeCache();
+      if (!s.error) warmEngine({ refresh: true });
       return s.error ? `❌ Schema reload failed: ${s.error}` : `🔄 Schema reloaded: ${s.tables.size} tables.`;
+    }
+    case "learned": {
+      const status = /pending|disabled|active/.exec(args)?.[0];
+      const items = listLearned({ status }).slice(-25).reverse();
+      if (!items.length) return status ? `No ${status} patterns.` : "Nothing learned yet.";
+      return [
+        `*Learned patterns${status ? ` (${status})` : ""}* — newest first`,
+        ...items.map(
+          (x) =>
+            `• ${x.id} [${x.status}] "${x.key}" → ${x.mapping.op}/${x.mapping.entity}${x.mapping.dim ? `/${x.mapping.dim}` : ""} · used ${x.hits}×`
+        ),
+      ].join("\n");
+    }
+    case "approve":
+    case "enable":
+    case "disable": {
+      const r = setLearnedStatus(args.trim(), cmd === "disable" ? "disabled" : "active");
+      return r.ok ? `✅ Pattern ${r.entry.id} is now ${r.entry.status}.` : `❌ ${r.error}`;
+    }
+    case "forget":
+    case "unlearn": {
+      const r = removeLearned(args.trim());
+      return r.ok ? "🗑️ Pattern removed." : `❌ ${r.error}`;
     }
     default:
       return `Unknown command /${cmd}. Send /help.`;

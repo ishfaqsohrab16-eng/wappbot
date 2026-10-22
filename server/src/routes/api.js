@@ -5,8 +5,9 @@ import { requireAuth, checkPassword, issueToken } from "./auth.js";
 import { createRateLimiter } from "../util/rateLimit.js";
 import { toAppError } from "../util/errors.js";
 import { llmQueue, llmHealth } from "../llm/client.js";
-import { runAssistant, primeCache } from "../bot/assistant.js";
+import { runAssistant, warmEngine } from "../bot/assistant.js";
 import { clearHistory } from "../store/history.js";
+import { listLearned, setLearnedStatus, removeLearned } from "../engine/learned.js";
 import { listUsers, addUser, removeUser, adminNumbers } from "../store/users.js";
 import { getSchema, schemaSummary } from "../db/schema.js";
 import { invalidateCatalog } from "../db/catalog.js";
@@ -120,7 +121,8 @@ apiRouter.post("/chat", requireAuth, async (req, res) => {
       onStatus: (status) => send("status", { status }),
       onProgress: (note) => send("progress", { note }),
     });
-    send("done", { action: result.action, sql: result.sql, rowCount: result.rowCount, ms: result.ms });
+    for (const f of result.files || []) send("file", { name: f.name, mime: f.mime, kind: f.kind, caption: f.caption, base64: f.base64 });
+    send("done", { action: result.action, source: result.source, llmCalls: result.llmCalls || 0, ms: result.ms });
   } catch (err) {
     const e = toAppError(err);
     if (e.code !== "aborted") {
@@ -135,6 +137,23 @@ apiRouter.post("/chat", requireAuth, async (req, res) => {
 
 apiRouter.post("/chat/reset", requireAuth, (req, res) => {
   clearHistory(`web:${String(req.body?.sessionId || "default").slice(0, 64)}`);
+  res.json({ ok: true });
+});
+
+// ---- learned query patterns --------------------------------------------
+apiRouter.get("/learned", requireAuth, (req, res) => {
+  res.json({ items: listLearned({ status: req.query.status || undefined }) });
+});
+
+apiRouter.post("/learned/:id", requireAuth, (req, res) => {
+  const r = setLearnedStatus(String(req.params.id), String(req.body?.status || ""));
+  if (!r.ok) return res.status(r.error === "not found" ? 404 : 400).json({ error: r.error });
+  res.json(r.entry);
+});
+
+apiRouter.delete("/learned/:id", requireAuth, (req, res) => {
+  const r = removeLearned(String(req.params.id));
+  if (!r.ok) return res.status(404).json({ error: r.error });
   res.json({ ok: true });
 });
 
@@ -168,7 +187,7 @@ apiRouter.get("/schema", requireAuth, async (_req, res) => {
 apiRouter.post("/schema/refresh", requireAuth, async (_req, res) => {
   invalidateCatalog();
   const s = await getSchema({ refresh: true });
-  if (!s.error) primeCache();
+  if (!s.error) warmEngine({ refresh: true });
   res.json(schemaSummary(s));
 });
 

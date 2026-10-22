@@ -6,12 +6,12 @@ import { log } from "./logger.js";
 import { apiRouter, webhookUrl } from "./routes/api.js";
 import { webhookRouter } from "./routes/webhook.js";
 import { getSchema } from "./db/schema.js";
-import { getCatalog } from "./db/catalog.js";
 import { closePool, dbEnabled } from "./db/pool.js";
 import { flushUsers } from "./store/users.js";
 import { flushHistory } from "./store/history.js";
+import { flushLearned } from "./engine/learned.js";
 import { warmup } from "./llm/client.js";
-import { primeCache } from "./bot/assistant.js";
+import { warmEngine } from "./bot/assistant.js";
 import { ensureInstance, evolutionEnabled } from "./whatsapp/evolution.js";
 
 const app = express();
@@ -40,12 +40,11 @@ app.use((err, _req, res, _next) => {
 const server = app.listen(config.port, () => {
   log.info(`wappbot listening on :${config.port}`);
   for (const w of configWarnings()) log.warn(w);
+  warmup();
   if (dbEnabled())
     getSchema()
-      .then((s) => getCatalog(s))
-      .then(() => primeCache())
-      .catch((err) => log.warn("Schema/catalog warmup failed:", err.message));
-  else warmup();
+      .then(() => warmEngine())
+      .catch((err) => log.warn("Engine warmup failed:", err.message));
   if (config.evolution.autoSetWebhook && evolutionEnabled()) setupWhatsApp();
 });
 
@@ -66,6 +65,7 @@ async function shutdown(sig) {
   log.info(`${sig} received, shutting down`);
   flushUsers();
   flushHistory();
+  flushLearned();
   server.close();
   await closePool();
   setTimeout(() => process.exit(0), 3000).unref();

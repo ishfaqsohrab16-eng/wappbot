@@ -7,7 +7,17 @@ const STATUS_TEXT = {
   answering: "Writing the answer…",
 };
 
-const EXAMPLES = ["How many students are there?", "Kitne courses active hain?", "آج کتنے نئے داخلے ہوئے؟"];
+const SOURCE_TEXT = {
+  canned: "instant reply",
+  rules: "matched by rules",
+  "rules-lowconf": "best guess by rules",
+  "learned:exact": "learned pattern",
+  "learned:similar": "learned pattern (similar)",
+  llm: "understood by AI",
+  "llm-chat": "AI chat",
+};
+
+const EXAMPLES = ["How many students in the current batch?", "Students by center chart", "Kitne applicants admitted hain?", "Which batch is running?"];
 
 function newSessionId() {
   return Math.random().toString(36).slice(2, 10);
@@ -20,15 +30,21 @@ function Message({ m }) {
         {m.text || (m.pending ? <span className="typing"><i /><i /><i /></span> : null)}
         {m.pending && m.status && <div className="msg-status">{STATUS_TEXT[m.status] || m.status}</div>}
         {m.error && <div className="msg-error">{m.error}</div>}
-        {m.meta?.sql && (
-          <details className="sql">
-            <summary>
-              SQL · {m.meta.rowCount} row(s) · {(m.meta.ms / 1000).toFixed(1)}s
-            </summary>
-            <pre>{m.meta.sql}</pre>
-          </details>
+        {(m.files || []).map((f) =>
+          f.kind === "image" ? (
+            <img key={f.name} className="msg-image" src={`data:${f.mime};base64,${f.base64}`} alt={f.caption || f.name} />
+          ) : (
+            <a key={f.name} className="msg-file" download={f.name} href={`data:${f.mime};base64,${f.base64}`}>
+              📎 {f.name}
+            </a>
+          )
         )}
-        {m.meta && !m.meta.sql && <div className="msg-status">{(m.meta.ms / 1000).toFixed(1)}s</div>}
+        {m.meta && (
+          <div className="msg-status">
+            {(m.meta.ms / 1000).toFixed(1)}s · {SOURCE_TEXT[m.meta.source] || m.meta.source || m.meta.action}
+            {m.meta.llmCalls ? ` · ${m.meta.llmCalls} AI call${m.meta.llmCalls > 1 ? "s" : ""}` : " · no AI call"}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -70,6 +86,7 @@ export default function Chat() {
         signal: ac.signal,
         onToken: (t) => patchLast((m) => ({ ...m, text: m.text + t })),
         onStatus: (s) => patchLast((m) => ({ ...m, status: s })),
+        onFile: (f) => patchLast((m) => ({ ...m, files: [...(m.files || []), f] })),
         onDone: (meta) => patchLast((m) => ({ ...m, pending: false, meta })),
         onError: (e) => patchLast((m) => ({ ...m, pending: false, error: e.message })),
       });

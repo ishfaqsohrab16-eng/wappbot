@@ -211,3 +211,6 @@ td.clip { max-width: 320px; overflow: hidden; text-overflow: ellipsis; display: 
   .chat-page { height: calc(100vh - 90px); }
   .search { max-width: 160px; }
 }
+
+.msg-image { display: block; max-width: 100%; margin-top: 8px; border-radius: 8px; border: 1px solid var(--border); }
+.msg-file { display: inline-block; margin-top: 8px; padding: 6px 10px; border-radius: 8px; background: var(--surface-2); border: 1px solid var(--border); font-weight: 600; }

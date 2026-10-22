@@ -8,6 +8,8 @@ RUN npm run build
 
 # ---- runtime ----
 FROM node:20-alpine
+# Fonts so chart images have readable labels
+RUN apk add --no-cache font-dejavu fontconfig
 ENV NODE_ENV=production \
     PORT=3000 \
     DATA_DIR=/app/data \

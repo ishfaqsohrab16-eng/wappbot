@@ -7,7 +7,8 @@ import { isAllowed, touchUser } from "../store/users.js";
 import { handleCommand } from "../bot/commands.js";
 import { runAssistant } from "../bot/assistant.js";
 import { transcribe, sttEnabled } from "../stt/transcribe.js";
-import { sendText, sendTyping, markRead, getMediaBase64 } from "./evolution.js";
+import { sendText, sendTyping, markRead, getMediaBase64, sendMedia, sendVoice } from "./evolution.js";
+import { canSpeak, synthesize } from "../tts/speak.js";
 
 const rateLimiter = createRateLimiter({ limit: config.llm.rateLimitPerMin });
 const seen = new Map(); // message id -> time, to drop webhook retries
@@ -197,12 +198,22 @@ async function processMessage({ data, phone, replyTo, content, name }) {
     await notes;
     const prefix = content.kind === "audio" && config.bot.echoTranscript ? `🎤 _${text}_\n\n` : "";
     await sendText(replyTo, prefix + result.reply);
+    for (const f of result.files || []) {
+      await sendMedia(replyTo, f).catch((err) => log.warn(`Sending ${f.name} failed:`, err.message));
+    }
+    // Asked by voice and the answer is short: reply with a voice note too.
+    if (content.kind === "audio" && config.bot.voiceReplies && !(result.files || []).length && canSpeak(result.reply)) {
+      const audioB64 = await synthesize(result.reply);
+      if (audioB64) await sendVoice(replyTo, audioB64).catch((err) => log.warn("Voice reply failed:", err.message));
+    }
     recordActivity({
       ...activity,
       text,
       language,
       action: result.action,
-      sql: result.sql,
+      source: result.source,
+      llm: result.llmCalls || 0,
+      files: (result.files || []).map((f) => f.name),
       rows: result.rowCount,
       reply: result.reply.slice(0, 300),
       status: "ok",

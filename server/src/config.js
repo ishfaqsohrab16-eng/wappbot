@@ -59,9 +59,12 @@ export const config = {
     googleCooldownMs: num("GOOGLE_COOLDOWN_MS", 15 * 60 * 1000),
     baseUrl: str("LLM_BASE_URL", "http://wp_man_llm:11434/v1").replace(/\/$/, ""),
     apiKey: str("LLM_API_KEY", "ollama"),
-    model: str("LLM_MODEL", "qwen3:8b"),
+    // qwen3:4b is ~2x faster than 8b on CPU and enough for routing + chat.
+    model: str("LLM_MODEL", "qwen3:4b"),
+    // Pull the model into Ollama on startup if it is missing.
+    autoPull: bool("LLM_AUTO_PULL", true),
     // Ollama context window. Its default (2-4k) silently cuts the schema off.
-    numCtx: num("LLM_NUM_CTX", 8192),
+    numCtx: num("LLM_NUM_CTX", 4096),
     // How long Ollama keeps the model in memory (-1 = forever). Avoids slow cold loads.
     keepAlive: str("LLM_KEEP_ALIVE", "-1"),
     // Thinking makes qwen3/deepseek-r1 much slower; off by default.
@@ -70,7 +73,7 @@ export const config = {
     botMaxTokens: num("LLM_BOT_MAX_TOKENS", 500),
     temperature: num("LLM_TEMPERATURE", 0.2),
     reasoningEffort: str("LLM_REASONING_EFFORT", "none"),
-    timeoutMs: num("LLM_TIMEOUT_MS", 120000),
+    timeoutMs: num("LLM_TIMEOUT_MS", 300000),
     concurrency: num("LLM_CONCURRENCY", 2),
     maxQueue: num("LLM_MAX_QUEUE", 10),
     rateLimitPerMin: num("LLM_RATE_LIMIT_PER_MIN", 10),
@@ -78,6 +81,30 @@ export const config = {
     historyDays: num("LLM_HISTORY_DAYS", 30),
     maxUserChars: num("LLM_MAX_USER_CHARS", 2000),
     maxAgentSteps: num("LLM_MAX_AGENT_STEPS", 4),
+  },
+
+  // Deterministic query engine (approved read-only handlers, learned patterns)
+  engine: {
+    // LLM only classifies unknown questions into a plan; it never writes SQL.
+    llmFallback: bool("ENGINE_LLM_FALLBACK", true),
+    // Legacy free-form text-to-SQL. Off: LLM-generated SQL is never executed.
+    allowLlmSql: bool("ALLOW_LLM_SQL", false),
+    learnMinConfidence: num("LEARN_MIN_CONFIDENCE", 0.6),
+    learnActiveConfidence: num("LEARN_ACTIVE_CONFIDENCE", 0.8),
+    resultCacheMs: num("RESULT_CACHE_MS", 60000),
+    exportMaxRows: num("EXPORT_MAX_ROWS", 5000),
+    autoExcel: bool("AUTO_EXCEL", true),
+    autoChart: bool("AUTO_CHART", true),
+  },
+
+  // Text-to-speech for voice replies (OpenAI-compatible /v1/audio/speech, e.g. Kokoro)
+  tts: {
+    baseUrl: str("TTS_BASE_URL").replace(/\/$/, ""),
+    apiKey: str("TTS_API_KEY", "none"),
+    model: str("TTS_MODEL", "kokoro"),
+    voice: str("TTS_VOICE", "af_heart"),
+    maxChars: num("TTS_MAX_CHARS", 350),
+    timeoutMs: num("TTS_TIMEOUT_MS", 60000),
   },
 
   // Database (read-only)
@@ -119,6 +146,8 @@ export const config = {
     echoTranscript: bool("BOT_ECHO_TRANSCRIPT", true),
     // Send short progress notes (what the bot understood, retries). Never SQL/schema.
     showThinking: bool("BOT_SHOW_THINKING", true),
+    // Reply to voice notes with a voice note when the answer is short
+    voiceReplies: bool("BOT_VOICE_REPLIES", true),
     contextNote: str("BOT_CONTEXT_NOTE", "You answer questions about an LMS (learning management system) database."),
   },
 };
@@ -133,8 +162,6 @@ export function configWarnings() {
     w.push("EVOLUTION_BASE_URL / EVOLUTION_API_KEY / EVOLUTION_INSTANCE not fully set: WhatsApp disabled.");
   if (!config.evolution.webhookSecret) w.push("WEBHOOK_SECRET is empty: the webhook is not protected.");
   if (!config.db.name || !config.db.user) w.push("DB_NAME / DB_USER not set: database features disabled.");
-  if (config.llm.provider === "local" && config.llm.numCtx < 6144)
-    w.push(`LLM_NUM_CTX=${config.llm.numCtx} is small; the schema may not fit. 8192 is recommended.`);
   if ((config.llm.provider === "google" || config.llm.provider === "auto") && !config.llm.googleApiKey)
     w.push("LLM_PROVIDER is google but GOOGLE_API_KEY is empty; falling back to local LLM.");
   return w;

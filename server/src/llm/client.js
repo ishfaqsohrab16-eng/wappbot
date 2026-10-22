@@ -323,9 +323,31 @@ export async function* streamChat(messages, opts = {}) {
   }
 }
 
+/** Pull the configured model into Ollama if it is not installed yet. */
+async function ensureModel() {
+  const h = await pingLocal();
+  if (h.ok || h.error !== "Model not installed" || !config.llm.autoPull) return h.ok;
+  log.info(`Pulling ${config.llm.model} into Ollama (first start only, can take several minutes)…`);
+  try {
+    const res = await fetch(`${ollamaRoot}/api/pull`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: config.llm.model, stream: false }),
+      signal: AbortSignal.timeout(60 * 60_000),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    log.info(`Model ${config.llm.model} is ready`);
+    return true;
+  } catch (err) {
+    log.warn(`Could not pull ${config.llm.model}: ${err.message}`);
+    return false;
+  }
+}
+
 /** Load the model into memory so the first real question is not slow. */
 export async function warmup() {
   if (activeProvider() !== "local") return;
+  await ensureModel();
   try {
     const started = Date.now();
     await ollamaChat([{ role: "user", content: "hi" }], { maxTokens: 1 });

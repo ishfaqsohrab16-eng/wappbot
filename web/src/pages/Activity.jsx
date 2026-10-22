@@ -48,9 +48,14 @@ export default function Activity() {
                     </td>
                     <td>{a.kind === "audio" ? "🎤 voice" : a.kind}{a.language && <div className="muted small">{a.language}</div>}</td>
                     <td className="clip" dir="auto">{a.text}</td>
-                    <td className="clip" dir="auto" title={a.sql || ""}>
+                    <td className="clip" dir="auto">
                       {a.reply}
-                      {a.sql && <div className="muted small">SQL · {a.rows} row(s)</div>}
+                      {a.source && (
+                        <div className="muted small">
+                          {a.source} · {a.llm ? `${a.llm} AI call(s)` : "no AI call"}
+                          {a.files?.length ? ` · 📎 ${a.files.join(", ")}` : ""}
+                        </div>
+                      )}
                     </td>
                     <td><span className={`badge ${STATUS_CLASS[a.status] || "bad"}`}>{a.status}</span></td>
                     <td className="muted nowrap">{a.ms ? `${(a.ms / 1000).toFixed(1)}s` : ""}</td>

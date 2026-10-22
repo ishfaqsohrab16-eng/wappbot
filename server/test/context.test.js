@@ -1,37 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-const { expandStars, guardSql } = await import("../src/db/sqlGuard.js");
-const { identifierHints, smallTalkReply, looksLikeDataQuestion } = await import("../src/bot/intent.js");
-const { parseJson, chooseTables, joinTables, tablesByWords } = await import("../src/bot/context.js");
+const { smallTalkReply, looksLikeDataQuestion } = await import("../src/bot/intent.js");
+const { extractIdent, normalize } = await import("../src/engine/parser.js");
+const { resolveDate } = await import("../src/engine/dictionary.js");
 const { stripThink } = await import("../src/llm/client.js");
-
-const tables = new Map([
-  ["students", { columns: [{ name: "id", key: "PRI" }, { name: "std_name" }, { name: "std_cnic" }, { name: "batch_id" }] }],
-  ["tbl_batches", { columns: [{ name: "id", key: "PRI" }, { name: "batch_name" }] }],
-  ["student_fee_installments", { columns: [{ name: "id", key: "PRI" }, { name: "amount" }] }],
-]);
-const schema = { tables };
-
-test("expandStars turns * into allowed columns", () => {
-  const a = expandStars("SELECT * FROM students WHERE id = 1", tables);
-  assert.match(a, /^SELECT `id`, `std_name`, `std_cnic`, `batch_id` FROM students/);
-  assert.ok(guardSql(a).ok);
-  const b = expandStars("SELECT s.*, b.batch_name FROM students s JOIN tbl_batches AS b ON b.id = s.batch_id", tables);
-  assert.match(b, /`s`\.`std_cnic`/);
-  assert.ok(guardSql(b).ok, guardSql(b).error);
-  assert.equal(expandStars("SELECT COUNT(*) FROM students", tables), "SELECT COUNT(*) FROM students");
-  assert.ok(!guardSql(expandStars("SELECT * FROM unknown_t", tables)).ok);
-});
-
-test("identifierHints for CNIC, phone, email", () => {
-  const h = identifierHints("cnic 54401-6647329-0 phone 0333-7881264 a@B.com");
-  assert.ok(h.some((x) => x.includes("'5440166473290'")));
-  assert.ok(h.some((x) => x.includes("3337881264")));
-  assert.ok(h.some((x) => x.includes("a@b.com")));
-  assert.equal(identifierHints("how many students in batch 10").length, 0);
-  assert.equal(identifierHints("5440166473290").filter((x) => x.startsWith("Phone")).length, 0);
-});
+const { speakable } = await import("../src/tts/speak.js");
 
 test("smallTalkReply only for pure greetings", () => {
   assert.ok(smallTalkReply("Hi"));
@@ -44,45 +18,38 @@ test("smallTalkReply only for pure greetings", () => {
   assert.ok(!looksLikeDataQuestion("Hello"));
 });
 
-test("parseJson tolerates surrounding text", () => {
-  assert.deepEqual(parseJson('Sure: {"type":"chat","reply":"hi"} done'), { type: "chat", reply: "hi" });
-  assert.equal(parseJson("no json"), null);
+test("identifiers: CNIC, roll number, phone, email", () => {
+  assert.deepEqual(extractIdent("54401-6647329-0"), { type: "cnic", value: "5440166473290", display: "54401-6647329-0" });
+  assert.equal(extractIdent("cnic 5440166473290 please").type, "cnic");
+  assert.equal(extractIdent("roll no db10-0240252-0").value, "DB10-0240252-0");
+  assert.equal(extractIdent("+92 333 7881264").value, "3337881264");
+  assert.equal(extractIdent("0333-7881264").type, "phone");
+  assert.equal(extractIdent("a.b@Mail.com").value, "a.b@mail.com");
+  assert.equal(extractIdent("how many students in batch 10"), null);
 });
 
-test("table selection finds tables by words and join targets", () => {
-  assert.deepEqual(tablesByWords(schema, "student details").slice(0, 1), ["students"]);
-  assert.deepEqual(joinTables(schema, ["students"]), ["tbl_batches"]);
-  const t = chooseTables(schema, { picked: ["STUDENTS"], question: "students in batch 10" });
-  assert.ok(t.includes("students") && t.includes("tbl_batches"));
+test("normalize fixes common misspellings and Roman Urdu", () => {
+  assert.equal(normalize("hw mny studnts in btch 10"), "how many students in batch 10");
+  assert.equal(normalize("kitny trainr hain"), "kitne trainer hain");
+  assert.equal(normalize("attendence todey"), "attendance today");
+});
+
+test("date phrases", () => {
+  const now = new Date("2026-10-22T10:00:00Z");
+  assert.deepEqual(resolveDate("today", now), { from: "2026-10-22", to: "2026-10-22", label: "today" });
+  assert.equal(resolveDate("is mahine", now).from, "2026-10-01");
+  assert.equal(resolveDate("last month", now).to, "2026-09-30");
+  assert.equal(resolveDate("in september", now).from, "2026-09-01");
+  assert.equal(resolveDate("on 20/10/2026", now).from, "2026-10-20");
+  assert.equal(resolveDate("last 7 days", now).from, "2026-10-16");
+  assert.equal(resolveDate("students in batch 10", now), null);
 });
 
 test("stripThink removes reasoning blocks", () => {
-  assert.equal(stripThink("<think>hmm</think>\nSELECT 1"), "SELECT 1");
+  assert.equal(stripThink("<think>hmm</think>\n{\"a\":1}"), '{"a":1}');
   assert.equal(stripThink("plain"), "plain");
 });
 
-test("id columns are replaced with names from their lookup tables", async () => {
-  const { resolveIdColumns, refTableFor, labelColumns } = await import("../src/bot/context.js");
-  const s = {
-    tables: new Map([
-      ["students", { columns: [{ name: "id", key: "PRI" }, { name: "std_name" }, { name: "course_id" }, { name: "center_id" }, { name: "std_batch_id" }] }],
-      ["courses", { columns: [{ name: "id", key: "PRI" }, { name: "short_code" }, { name: "course_name" }] }],
-      ["tbl_centres", { columns: [{ name: "center_id", key: "PRI" }, { name: "center_name" }] }],
-      ["batches", { columns: [{ name: "id", key: "PRI" }, { name: "title" }] }],
-    ]),
-  };
-  assert.equal(refTableFor(s, "course_id"), "courses");
-  assert.equal(refTableFor(s, "center_id"), "tbl_centres");
-  assert.equal(refTableFor(s, "std_batch_id"), "batches");
-  assert.deepEqual(labelColumns(s, "courses"), { pk: "id", label: "course_name" });
-  const queries = [];
-  const query = async (sql, params) => {
-    queries.push(sql);
-    if (/courses/.test(sql)) return { rows: [{ k: 3, v: "Web Development" }] };
-    if (/tbl_centres/.test(sql)) return { rows: [{ k: "4", v: "Quetta Center" }] };
-    return { rows: [] };
-  };
-  const rows = await resolveIdColumns(s, [{ std_name: "Ali", course_id: 3, center_id: 4, std_batch_id: 9 }], query, { selfTable: "students" });
-  assert.deepEqual(rows, [{ std_name: "Ali", course: "Web Development", center: "Quetta Center", std_batch_id: 9 }]);
-  assert.ok(queries.every((q) => /IN \(\?\)/.test(q)));
+test("speakable strips WhatsApp formatting for voice replies", () => {
+  assert.equal(speakable("*42* students\n_Batch 10_"), "42 students, Batch 10");
 });

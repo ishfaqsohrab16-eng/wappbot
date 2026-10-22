@@ -99,6 +99,7 @@ export async function streamChat({ message, sessionId, signal, ...handlers }) {
       if (event === "token") handlers.onToken?.(payload.token);
       else if (event === "status") handlers.onStatus?.(payload.status);
       else if (event === "progress") handlers.onStatus?.(payload.note);
+      else if (event === "file") handlers.onFile?.(payload);
       else if (event === "done") handlers.onDone?.(payload);
       else if (event === "error") handlers.onError?.(payload);
     }

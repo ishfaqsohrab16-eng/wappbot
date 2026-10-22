@@ -61,6 +61,30 @@ export async function sendText(to, text, { quoted } = {}) {
 }
 
 /** Show "typing…" for up to `ms`. Failures are ignored. */
+/**
+ * Send a file: { kind: "image"|"document", mime, name, base64, caption }.
+ */
+export async function sendMedia(to, file) {
+  await call(
+    "POST",
+    `/message/sendMedia/${inst()}`,
+    {
+      number: to,
+      mediatype: file.kind === "image" ? "image" : "document",
+      mimetype: file.mime,
+      caption: file.caption || "",
+      media: file.base64,
+      fileName: file.name,
+    },
+    60000
+  );
+}
+
+/** Send a voice note (Evolution converts the audio to WhatsApp PTT). */
+export async function sendVoice(to, base64) {
+  await call("POST", `/message/sendWhatsAppAudio/${inst()}`, { number: to, audio: base64, encoding: true }, 60000);
+}
+
 export async function sendTyping(to, ms = 10000) {
   try {
     await call("POST", `/chat/sendPresence/${inst()}`, { number: to, presence: "composing", delay: ms }, 5000);

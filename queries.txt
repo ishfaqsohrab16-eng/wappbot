@@ -1,0 +1,1335 @@
+READ QUERY INVENTORY - LMS application
+Generated from application source. Sequelize ORM calls below are the SQL-producing read operations; Sequelize builds concrete SQL from the model, options, scopes, associations, and runtime values shown in each call.
+
+SCOPE / COMPLETENESS
+- Includes backend runtime ORM reads, raw SELECT queries, metadata/schema SELECTs, and read-before-write findOrCreate calls.
+- Includes operational script reads in a separate section because those scripts are not part of each server request but are shipped with the app.
+- Excludes tests, generated dist assets, migrations, seed/import SQL files, and third-party dependencies.
+- Runtime values, helper-generated where clauses, model scopes, and the AI assistant SQL are dynamic; their exact SQL depends on the request/state. The source call is included instead of inventing one fixed SQL string.
+- HTTP GET endpoints are not duplicated here: they are API transport routes, not database queries. Their database read operations are catalogued at the source calls below.
+
+SUMMARY: 610 runtime ORM read calls; 25 static raw SELECT calls; 1 dynamic read-only SQL execution path(s); 7 maintenance-script read calls.
+
+A. RAW SQL READS (literal SQL or a source variable resolved to SQL)
+01. controllers/centerVisitController.js:702
+    Query source: `SELECT DISTINCT tb_id FROM trainers_center_allocation`
+    Execution:   sequelize.query( `SELECT DISTINCT tb_id FROM trainers_center_allocation` )
+02. controllers/profileController.js:23
+    Query source: ` SELECT a.as_id, a.as_title, a.as_deadline, a.as_marks, a.as_added_on FROM assignments AS a WHERE a.tb_id = :tb_id AND a.center_id = :center_id AND a.course_id = :course_id `
+    Execution:   sequelize.query( ` SELECT a.as_id, a.as_title, a.as_deadline, a.as_marks, a.as_added_on FROM assignments AS a WHERE a.tb_id = :tb_id AND a.center_id = :center_id AND a.course_id = :course_id `, { replacements: { tb_id: batchId, center_id: student.center_id, course_id: student.course_id, }, type: sequelize.QueryTypes.SELECT, } )
+03. controllers/profileController.js:49
+    Query source: ` SELECT a.as_id, a.as_title, s.submitted_on, s.obt_marks, a.as_marks, s.as_submission_status FROM assignment_submissions AS s JOIN assignments AS a ON s.as_id = a.as_id WHERE s.std_rollno = :std_rollno AND s.tb_id = :tb_id AND s.as_submission_status <> 2 `
+    Execution:   sequelize.query( ` SELECT a.as_id, a.as_title, s.submitted_on, s.obt_marks, a.as_marks, s.as_submission_status FROM assignment_submissions AS s JOIN assignments AS a ON s.as_id = a.as_id WHERE s.std_rollno = :std_rollno AND s.tb_id = :tb_id AND s.as_submission_status <> 2 `, { replacements: { std_rollno: student.std_rollno, tb_id: batchId, }, type: sequelize.QueryTypes.SELECT, } )
+04. controllers/profileController.js:100
+    Query source: ` SELECT COUNT(*) as count FROM tickets WHERE std_rollno = :std_rollno `
+    Execution:   sequelize.query( ` SELECT COUNT(*) as count FROM tickets WHERE std_rollno = :std_rollno `, { replacements: { std_rollno: student.std_rollno }, type: sequelize.QueryTypes.SELECT, } )
+05. controllers/profileController.js:113
+    Query source: ` SELECT COUNT(*) as count FROM students_feedback WHERE std_rollno = :std_rollno `
+    Execution:   sequelize.query( ` SELECT COUNT(*) as count FROM students_feedback WHERE std_rollno = :std_rollno `, { replacements: { std_rollno: student.std_rollno }, type: sequelize.QueryTypes.SELECT, } )
+06. controllers/profileController.js:126
+    Query source: ` SELECT * FROM students_docs WHERE std_cnic = :std_cnic `
+    Execution:   sequelize.query( ` SELECT * FROM students_docs WHERE std_cnic = :std_cnic `, { replacements: { std_cnic: student.std_cnic }, type: sequelize.QueryTypes.SELECT, } )
+07. controllers/profileController.js:139
+    Query source: ` SELECT * FROM students_freelancing_profiles WHERE std_cnic = :std_cnic `
+    Execution:   sequelize.query( ` SELECT * FROM students_freelancing_profiles WHERE std_cnic = :std_cnic `, { replacements: { std_cnic: student.std_cnic }, type: sequelize.QueryTypes.SELECT, } )
+08. controllers/profileController.js:344
+    Query source: ` SELECT u.user_id, u.user_name, u.user_username, u.user_email, u.user_profile_photo, u.user_type, u.user_status, s.std_id, s.std_rollno, s.std_cnic, s.std_gender, s.std_fathername, s.std_qualification, s.std_district, s.std_phone, s.course_id, s.center_id, s.tb_id, s.std_added_on, s.std_lms_status, s.std_forum_status, c.course_name, c.course_full_name, c.course_status, ce.center_name FROM user AS u INNER JOIN students AS s ON u.user_id = s.user_id LEFT JOIN courses AS c ON s.course_id = c.course_id LEFT JOIN centers AS ce ON s.center_id = ce.center_id WHERE LOWER(u.user_type) = 'student' AND s.std_cnic = :std_cnic LIMIT 1 `
+    Execution:   sequelize.query( ` SELECT u.user_id, u.user_name, u.user_username, u.user_email, u.user_profile_photo, u.user_type, u.user_status, s.std_id, s.std_rollno, s.std_cnic, s.std_gender, s.std_fathername, s.std_qualification, s.std_district, s.std_phone, s.course_id, s.center_id, s.tb_id, s.std_added_on, s.std_lms_status, s.std_forum_status, c.course_name, c.course_full_name, c.course_status, ce.center_name FROM user AS u INNER JOIN students AS s ON u.user_id = s.user_id LEFT JOIN courses AS c ON s.course_id = c.course_id LEFT JOIN centers AS ce ON s.center_id = ce.center_id WHERE LOWER(u.user_type) = 'student' AND s.std_cnic = :std_cnic LIMIT 1 `, { replacements: { std_cnic }, type: sequelize.QueryTypes.SELECT, } )
+09. controllers/studentController.js:253
+    Query source: `SELECT std_rollno, COUNT(*) as count FROM tickets WHERE std_rollno IN (:rollnos) GROUP BY std_rollno`
+    Execution:   sequelize.query( `SELECT std_rollno, COUNT(*) as count FROM tickets WHERE std_rollno IN (:rollnos) GROUP BY std_rollno`, { replacements: { rollnos: studentRollNos }, type: sequelize.QueryTypes.SELECT, } )
+10. controllers/studentController.js:262
+    Query source: `SELECT std_rollno, COUNT(*) as count FROM students_feedback WHERE std_rollno IN (:rollnos) GROUP BY std_rollno`
+    Execution:   sequelize.query( `SELECT std_rollno, COUNT(*) as count FROM students_feedback WHERE std_rollno IN (:rollnos) GROUP BY std_rollno`, { replacements: { rollnos: studentRollNos }, type: sequelize.QueryTypes.SELECT, } )
+11. controllers/studentController.js:271
+    Query source: `SELECT * FROM students_docs WHERE std_cnic IN (:cnics)`
+    Execution:   sequelize.query( `SELECT * FROM students_docs WHERE std_cnic IN (:cnics)`, { replacements: { cnics: studentCNICs }, type: sequelize.QueryTypes.SELECT, } )
+12. controllers/studentController.js:279
+    Query source: `SELECT * FROM students_freelancing_profiles WHERE std_cnic IN (:cnics)`
+    Execution:   sequelize.query( `SELECT * FROM students_freelancing_profiles WHERE std_cnic IN (:cnics)`, { replacements: { cnics: studentCNICs }, type: sequelize.QueryTypes.SELECT, } )
+13. controllers/studentController.js:447
+    Query source: ` SELECT a.as_id, a.as_title, a.as_deadline, a.as_marks, a.as_added_on FROM assignments AS a WHERE a.tb_id = :tb_id AND a.center_id = :center_id AND a.course_id = :course_id `
+    Execution:   sequelize.query( ` SELECT a.as_id, a.as_title, a.as_deadline, a.as_marks, a.as_added_on FROM assignments AS a WHERE a.tb_id = :tb_id AND a.center_id = :center_id AND a.course_id = :course_id `, { replacements: { tb_id: batchId, center_id: student.center_id, course_id: student.course_id, }, type: sequelize.QueryTypes.SELECT, } )
+14. controllers/studentController.js:470
+    Query source: ` SELECT a.as_id, a.as_title, s.submitted_on, s.obt_marks, a.as_marks, s.as_submission_status FROM assignment_submissions AS s JOIN assignments AS a ON s.as_id = a.as_id WHERE s.std_rollno = :std_rollno AND s.tb_id = :tb_id AND s.as_submission_status <> 2 `
+    Execution:   sequelize.query( ` SELECT a.as_id, a.as_title, s.submitted_on, s.obt_marks, a.as_marks, s.as_submission_status FROM assignment_submissions AS s JOIN assignments AS a ON s.as_id = a.as_id WHERE s.std_rollno = :std_rollno AND s.tb_id = :tb_id AND s.as_submission_status <> 2 `, { replacements: { std_rollno: student.std_rollno, tb_id: batchId, }, type: sequelize.QueryTypes.SELECT, } )
+15. controllers/studentController.js:823
+    Query source: ` SELECT u.user_id, u.user_name, u.user_username, u.user_email, u.user_profile_photo, u.user_type, u.user_status, u.user_password, s.std_id, s.std_rollno, s.std_cnic, s.std_gender, s.std_fathername, s.std_qualification, s.std_district, s.std_phone, s.course_id, s.center_id, s.tb_id, s.std_added_on, s.std_lms_status, s.std_forum_status, s.suspension_reason, c.course_name, c.course_full_name, c.course_status, ce.center_name FROM user AS u INNER JOIN students AS s ON u.user_id = s.user_id LEFT JOIN courses AS c ON s.course_id = c.course_id LEFT JOIN centers AS ce ON s.center_id = ce.center_id WHERE LOWER(u.user_type) = 'student' AND ${fieldClause} LIMIT 1 `
+    Execution:   sequelize.query( ` SELECT u.user_id, u.user_name, u.user_username, u.user_email, u.user_profile_photo, u.user_type, u.user_status, u.user_password, s.std_id, s.std_rollno, s.std_cnic, s.std_gender, s.std_fathername, s.std_qualification, s.std_district, s.std_phone, s.course_id, s.center_id, s.tb_id, s.std_added_on, s.std_lms_status, s.std_forum_status, s.suspension_reason, c.course_name, c.course_full_name, c.course_status, ce.center_name FROM user AS u INNER JOIN students AS s ON u.user_id = s.user_id LEFT JOIN courses AS c ON s.course_id = c.course_id LEFT JOIN centers AS ce ON s.center_id = ce.center_id WHERE LOWER(u.user_type) = 'student' AND ${fieldClause} LIMIT 1 `, { replacements, type: sequelize.QueryTypes.SELECT, } )
+16. controllers/studentPurgeController.js:138
+    Query source: `SELECT 1 FROM \`${table}\` WHERE \`${column}\` = :id LIMIT 1`
+    Execution:   sequelize.query( `SELECT 1 FROM \`${table}\` WHERE \`${column}\` = :id LIMIT 1`, { replacements: { id: student.user_id }, transaction } )
+17. controllers/studentPurgeController.js:164
+    Query source: `SELECT \`${source.column}\` AS filePath FROM \`${source.table}\` WHERE \`${source.key}\` = :value`
+    Execution:   sequelize.query( `SELECT \`${source.column}\` AS filePath FROM \`${source.table}\` WHERE \`${source.key}\` = :value`, { replacements: { value }, transaction } )
+18. utils/dbSchema.js:95
+    Query source: `SELECT TABLE_NAME AS t, COLUMN_NAME AS c, DATA_TYPE AS d, COLUMN_KEY AS k FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() ORDER BY TABLE_NAME, ORDINAL_POSITION`
+    Execution:   sequelize.query( `SELECT TABLE_NAME AS t, COLUMN_NAME AS c, DATA_TYPE AS d, COLUMN_KEY AS k FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() ORDER BY TABLE_NAME, ORDINAL_POSITION` )
+19. utils/dbSchema.js:101
+    Query source: `SELECT TABLE_NAME AS t, COLUMN_NAME AS c, REFERENCED_TABLE_NAME AS rt, REFERENCED_COLUMN_NAME AS rc FROM information_schema.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA = DATABASE() AND REFERENCED_TABLE_NAME IS NOT NULL`
+    Execution:   sequelize.query( `SELECT TABLE_NAME AS t, COLUMN_NAME AS c, REFERENCED_TABLE_NAME AS rt, REFERENCED_COLUMN_NAME AS rc FROM information_schema.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA = DATABASE() AND REFERENCED_TABLE_NAME IS NOT NULL` )
+20. utils/dbSchema.js:111
+    Query source: `SELECT TABLE_NAME AS t, TABLE_ROWS AS n FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE()`
+    Execution:   sequelize.query( `SELECT TABLE_NAME AS t, TABLE_ROWS AS n FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE()` )
+21. utils/ensureSchema.js:462
+    Query source: `SELECT IS_NULLABLE AS nullable FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :table AND COLUMN_NAME = :column`
+    Execution:   sequelize.query( `SELECT IS_NULLABLE AS nullable FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :table AND COLUMN_NAME = :column`, { replacements: { table, column } } )
+22. utils/ensureSchema.js:499
+    Query source: `SELECT COLUMN_TYPE AS type FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :table AND COLUMN_NAME = :column`
+    Execution:   sequelize.query( `SELECT COLUMN_TYPE AS type FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :table AND COLUMN_NAME = :column`, { replacements: { table, column } } )
+23. utils/ensureSchema.js:511
+    Query source: `SELECT COUNT(*) AS present FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :table AND INDEX_NAME = :index`
+    Execution:   sequelize.query( `SELECT COUNT(*) AS present FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :table AND INDEX_NAME = :index`, { replacements: { table, index } } )
+24. utils/ensureSchema.js:607
+    Query source: `SELECT COUNT(*) AS total FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :table AND COLUMN_NAME = :column`
+    Execution:   sequelize.query( `SELECT COUNT(*) AS total FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :table AND COLUMN_NAME = :column`, { replacements: { table, column } } )
+25. utils/evaluationMetrics.js:193
+    Query source: `SELECT COUNT(DISTINCT a.act_entity_id) AS total FROM activity_log a JOIN students s ON s.std_id = a.act_entity_id WHERE a.act_entity = 'Student' AND a.act_on >= :start AND a.act_on < :afterEnd AND a.act_changes LIKE '%"field":"std_lms_status"%' AND a.act_changes LIKE '%"to":2%' AND (${classes .map( (_, index) => `(s.center_id = :center${index} AND s.course_id = :course${index} AND s.tb_id = :batch${index})`, ) .join(" OR ")})`
+    Execution:   sequelize.query( `SELECT COUNT(DISTINCT a.act_entity_id) AS total FROM activity_log a JOIN students s ON s.std_id = a.act_entity_id WHERE a.act_entity = 'Student' AND a.act_on >= :start AND a.act_on < :afterEnd AND a.act_changes LIKE '%"field":"std_lms_status"%' AND a.act_changes LIKE '%"to":2%' AND (${classes .map( (_, index) => `(s.center_id = :center${index} AND s.course_id = :course${index} AND s.tb_id = :batch${index})`, ) .join(" OR ")})`, { replacements: { start: `${week.start} 00:00:00`, // Exclusive upper bound on the day AFTER Friday, so a removal at // 23:59:59.400 on Friday is inside the week rather than rounded out. afterEnd: nextDay(week.end), ...Object.fromEntries( classes.flatMap((entry, index) => [ [`center${index}`, entry.center_id], [`course${index}`, entry.course_id], [`batch${index}`, entry.tb_id], ]), ), }, }, )
+
+B. DYNAMIC READ-ONLY SQL
+1. utils/aiReadOnlyDb.js:140
+   db.query(withTimeLimit(sql), { type: Sequelize.QueryTypes.SELECT, raw: true, // Deliberately none. The statement is complete and was checked exactly as // it stands; passing replacements would let a `:name` inside a string // literal be substituted after the guard had already approved the text. })
+   Executes one AI-produced SELECT after the SQL guard, timeout, and SELECT-only database policy; the SQL text is request-generated and therefore has no single static query string.
+
+C. ORM READS - RUNTIME
+Each numbered entry is one call site, including repeated call sites with different filters. The method determines the read shape (findAll/list, findOne/single row, findByPk/primary-key lookup, count/sum/aggregate).
+001. controllers/activityLogController.js:32
+     Center.findByPk(center_id)
+002. controllers/activityLogController.js:33
+     Course.findByPk(course_id)
+003. controllers/activityLogController.js:34
+     TrainingBatch.findByPk(tb_id)
+004. controllers/activityLogController.js:83
+     ActivityLog.findAll({ where: { tb_id: tb_id }, order: [["act_on", "DESC"]], // The audit columns are what the screen actually shows now, so they // have to be selected - without act_summary the table renders blanks. attributes: [ 'act_id', 'user_type', 'user_id', 'course_id', 'center_id', 'tb_id', 'act_type', 'act_descrip', 'act_content', 'act_on', 'act_actor_name', 'act_entity', 'act_entity_id', 'act_summary', 'act_changes', 'act_ip', ], raw: true, // Get plain objects for faster processing })
+005. controllers/activityLogController.js:96
+     Student.findAll({ where: { tb_id: tb_id }, attributes: ['std_id', 'std_rollno', 'std_lms_status', 'suspension_reason'], // Only needed fields raw: true, })
+006. controllers/activityLogController.js:101
+     Assignment.findAll({ where: { tb_id: tb_id }, attributes: ['as_id'], // Only count needed raw: true, })
+007. controllers/activityLogController.js:106
+     AssignmentSubmission.findAll({ where: { tb_id: tb_id }, attributes: ['as_submission_id'], // Only count needed raw: true, })
+008. controllers/activityLogController.js:111
+     Tiket.findAll({ where: { tb_id: tb_id }, attributes: ['ticket_id', 'ticket_status'], // Only needed fields raw: true, })
+009. controllers/activityLogController.js:116
+     earning.findAll({ where: { tb_id: tb_id }, attributes: ['earning_id', 'std_id', 'earning_status', 'earning_amount'], // Only needed fields raw: true, })
+010. controllers/activityLogController.js:169
+     ActivityLog.findAll({ where: { user_id, user_type }, include: [ { model: Center, as: "center", attributes: ["center_name"] }, { model: Course, as: "course", attributes: ["course_name"] }, { model: TrainingBatch, as: "trainingBatch", attributes: ["tb_name"] }, ], order: [["act_on", "DESC"]], })
+011. controllers/adminController.js:102
+     User.findOne({ where: { [Op.or]: [{ user_username }, { user_email }], }, })
+012. controllers/adminController.js:207
+     User.findOne({ where: { user_id: result.userId, user_status: 1 }, attributes: ["user_id", "user_username", "user_type", "user_profile_photo"], })
+013. controllers/adminController.js:241
+     TrainingBatchModel.findOne({ order: [["tb_id", "DESC"]], attributes: ["tb_id", "tb_name", "tb_start", "tb_end", "tb_status"], })
+014. controllers/adminController.js:257
+     User.findOne({ where: { ...(isEmail ? { [Op.and]: [ sequelize.where( sequelize.fn("LOWER", sequelize.col("user_email")), normalizedLogin ), ], } : { user_username: normalizedLogin }), user_status: 1, }, attributes: [ "user_id", "user_username", "user_name", "user_password", "user_type", "user_status", "user_profile_photo", ], })
+015. controllers/adminController.js:303
+     Trainer.findOne({ where: { user_id: user.user_id }, })
+016. controllers/adminController.js:314
+     TrainersCenterAllocationModel.findOne({ where: { t_id: trainer.t_id, tb_id: trainingBatch.tb_id, }, })
+017. controllers/adminController.js:323
+     TrainersCenterAllocationModel.findOne({ where: { t_id: trainer.t_id, tb_id: trainingBatch.tb_id - 1, }, })
+018. controllers/adminController.js:346
+     Student.findOne({ where: { user_id: user.user_id }, })
+019. controllers/adminController.js:382
+     CenterUser.findOne({ where: { user_id: user.user_id }, })
+020. controllers/adminController.js:398
+     MasterTrainer.findOne({ where: { user_id: user.user_id }, })
+021. controllers/adminController.js:464
+     TrainingBatchModel.findOne({ order: [["tb_id", "DESC"]], attributes: ["tb_id", "tb_name", "tb_start", "tb_end", "tb_status"], })
+022. controllers/adminController.js:479
+     User.findOne({ where: { user_id }, attributes: [ "user_id", "user_username", "user_name", "user_password", "user_type", "user_status", "user_profile_photo", ], })
+023. controllers/adminController.js:502
+     Trainer.findOne({ where: { user_id: user.user_id }, })
+024. controllers/adminController.js:513
+     TrainersCenterAllocationModel.findOne({ where: { t_id: trainer.t_id, tb_id: tb_id, }, })
+025. controllers/adminController.js:522
+     TrainersCenterAllocationModel.findOne({ where: { t_id: trainer.t_id, tb_id: trainingBatch.tb_id - 1, }, })
+026. controllers/adminController.js:544
+     Student.findOne({ where: { user_id: user.user_id }, })
+027. controllers/adminController.js:568
+     CenterUser.findOne({ where: { user_id: user.user_id }, })
+028. controllers/adminController.js:584
+     MasterTrainer.findOne({ where: { user_id: user.user_id }, })
+029. controllers/adminController.js:711
+     Admin.findByPk(adminId)
+030. controllers/adminController.js:754
+     Admin.findByPk(adminId, { attributes: { exclude: ["admin_password"] }, })
+031. controllers/adminController.js:792
+     User.findOne({ where: { user_id: user_id }, })
+032. controllers/adminController.js:802
+     Student.findOne({ where: { user_id: user_id, }, })
+033. controllers/adminController.js:918
+     User.findOne({ where: { user_id }, })
+034. controllers/adminController.js:932
+     Student.findOne({ where: { user_id }, })
+035. controllers/adminController.js:1017
+     User.findOne({ where: { user_username, user_status: 1 }, })
+036. controllers/adminController.js:1060
+     User.findOne({ where: sequelize.where( sequelize.fn("LOWER", sequelize.col("user_email")), user_email ), })
+037. controllers/adminController.js:1156
+     User.findOne({ where: sequelize.where( sequelize.fn("LOWER", sequelize.col("user_email")), user_email ), })
+038. controllers/adminController.js:1166
+     Student.findOne({ where: { user_id: user.user_id }, })
+039. controllers/admissionControlController.js:26
+     AdmissionControl.findAll({ where: whereClause, attributes: ["ac_id", "tb_id", "center_id", "course_id", "allowed_gender"], order: [ ["tb_id", "DESC"], ["center_id", "ASC"], ["course_id", "ASC"], ], })
+040. controllers/admissionControlController.js:49
+     AdmissionControl.findAll({ include: [ { model: TrainingBatch, as: "batch", attributes: ["tb_id", "tb_name"] }, { model: Center, as: "center", attributes: ["center_id", "center_name"] }, { model: Course, as: "course", attributes: ["course_id", "course_full_name"] }, ], order: [ ["tb_id", "DESC"], ["center_id", "ASC"], ["course_id", "ASC"], ], })
+041. controllers/admissionControlController.js:134
+     AdmissionControl.findOne({ where: { tb_id: Number(tb_id), center_id: Number(center_id), course_id: Number(course_id), allowed_gender: { [Op.in]: ["all", normalizedGender], }, }, })
+042. controllers/assignmentController.js:82
+     TrainingBatch.findByPk(tb_id)
+043. controllers/assignmentController.js:98
+     Trainer.findOne({ where: { user_id: req.body.user_id } })
+044. controllers/assignmentController.js:110
+     trainers_center_allocation.findAll({ where: { t_id: trainer.t_id, tb_id }, raw: true, })
+045. controllers/assignmentController.js:215
+     Assignment.findByPk(id, { include: [ { model: Center, attributes: ["center_name"] }, { model: Course, attributes: ["course_name"] }, { model: TrainingBatch, attributes: ["tb_name"] }, ], })
+046. controllers/assignmentController.js:287
+     Assignment.findAll({ where: { tb_id, ...scope }, include: [ { model: Course, attributes: ["course_name"] }, { model: Center, attributes: ["center_name"] }, { model: TrainingBatch, attributes: ["tb_name"] }, { model: Trainer, attributes: ["user_id"], include: [ { model: User, as: "user", attributes: ["user_id", "user_name", "user_email"], }, ], }, ], order: [["as_added_on", "DESC"], ["as_id", "DESC"]], })
+047. controllers/assignmentController.js:316
+     AssignmentSubmission.findAll({ where: { as_id: { [Op.in]: assignmentIds }, tb_id }, raw: true, })
+048. controllers/assignmentController.js:332
+     Student.findAll({ where: { tb_id, center_id: { [Op.in]: [...new Set(assignments.map((a) => a.center_id))] }, course_id: { [Op.in]: [...new Set(assignments.map((a) => a.course_id))] }, std_lms_status: { [Op.ne]: 2 }, }, attributes: ["center_id", "course_id"], raw: true, })
+049. controllers/assignmentController.js:419
+     Assignment.findByPk(as_id)
+050. controllers/assignmentController.js:476
+     Assignment.findByPk(as_id)
+051. controllers/assignmentController.js:515
+     Assignment.findByPk(id)
+052. controllers/assignmentController.js:533
+     Assignment.findAll({ where: { as_group_id: assignment.as_group_id } })
+053. controllers/assignmentController.js:538
+     AssignmentSubmission.findAll({ where: { as_id: { [Op.in]: ids } }, attributes: ["as_submission_attachment"], raw: true, })
+054. controllers/assignmentSubmissionController.js:86
+     Assignment.findByPk(as_id)
+055. controllers/assignmentSubmissionController.js:104
+     AssignmentSubmission.findOne({ where: { std_rollno: student.std_rollno, tb_id, as_id }, })
+056. controllers/assignmentSubmissionController.js:223
+     Assignment.findByPk(as_id)
+057. controllers/assignmentSubmissionController.js:241
+     AssignmentSubmission.findOne({ where: { as_id, std_rollno: targetRollNumber }, })
+058. controllers/assignmentSubmissionController.js:300
+     Assignment.findByPk(as_id)
+059. controllers/assignmentSubmissionController.js:318
+     Student.findAll({ where: { tb_id, center_id: assignment.center_id, course_id: assignment.course_id, std_lms_status: { [Op.ne]: 2 }, }, include: [ { model: User, as: "user", attributes: ["user_name"] }, { model: Center, as: "centers", attributes: ["center_name"] }, { model: Course, as: "courses", attributes: ["course_name"] }, ], })
+060. controllers/assignmentSubmissionController.js:332
+     AssignmentSubmission.findAll({ where: { tb_id, as_id }, include: [ { model: Assignment, as: "Assignment", attributes: ["as_title", "as_marks"] }, ], // Newest first, so the map below keeps the most recent if a duplicate // ever exists. It used to keep whichever the database returned first. order: [["as_submission_id", "DESC"]], })
+061. controllers/assignmentSubmissionController.js:435
+     AssignmentSubmission.findByPk(submissionId)
+062. controllers/assignmentSubmissionController.js:442
+     Assignment.findByPk(submission.as_id)
+063. controllers/attendanceController.js:70
+     Trainer.findOne({ where: { user_id: markerUserId }, })
+064. controllers/attendanceController.js:79
+     TrainerCenterAllocation.findAll({ where: { t_id: trainer.t_id, tb_id: tb_id, }, raw: true, })
+065. controllers/attendanceController.js:104
+     Student.findAll({ where: { std_cnic: { [Op.in]: studentCNICs, }, tb_id: tb_id, }, attributes: ["std_cnic", "center_id", "course_id"], raw: true, })
+066. controllers/attendanceController.js:252
+     Trainer.findOne({ where: { user_id: req.user.id } })
+067. controllers/attendanceController.js:257
+     TrainerCenterAllocation.findAll({ where: { t_id: trainer.t_id }, raw: true, })
+068. controllers/attendanceController.js:342
+     Trainer.findOne({ where: { user_id: req.user.id } })
+069. controllers/attendanceController.js:349
+     TrainerCenterAllocation.findAll({ where: { t_id: trainer.t_id, tb_id: batchId }, })
+070. controllers/attendanceController.js:397
+     CenterDates.findOne({ where: dateQuery, })
+071. controllers/attendanceController.js:418
+     Student.findAll({ where: studentWhere, raw: true, })
+072. controllers/attendanceController.js:423
+     Attendance.findAll({ where: attendanceWhere, raw: true, })
+073. controllers/attendanceController.js:544
+     Trainer.findOne({ where: { user_id: req.user.id } })
+074. controllers/attendanceController.js:549
+     TrainerCenterAllocation.findAll({ where: { tb_id: batchId, t_id: trainer.t_id }, raw: true, })
+075. controllers/attendanceController.js:579
+     Attendance.findAll({ where: attendanceWhere, include: [ { model: Center, attributes: ["center_name"], }, { model: Course, attributes: ["course_name", "course_full_name"], }, ], })
+076. controllers/attendanceController.js:635
+     Attendance.findByPk(id)
+077. controllers/attendanceController.js:683
+     Student.findAll({ where: { tb_id, std_lms_status: { [Op.ne]: 2 }, ...(center_id && String(center_id) !== "0" ? { center_id } : {}), ...(course_id && String(course_id) !== "0" ? { course_id } : {}), }, attributes: ["std_cnic", "std_rollno", "center_id", "course_id"], raw: true, })
+078. controllers/attendanceController.js:750
+     Student.findOne({ where: { user_id: req.user.id }, attributes: ["std_cnic", "std_rollno", "center_id", "course_id", "tb_id", "std_added_on"], raw: true, })
+079. controllers/attendanceController.js:764
+     Student.findOne({ where: { std_cnic, ...(tb_id ? { tb_id } : {}) }, attributes: ["std_cnic", "std_rollno", "center_id", "course_id", "tb_id", "std_added_on"], raw: true, })
+080. controllers/attendanceController.js:775
+     Trainer.findOne({ where: { user_id: req.user.id } })
+081. controllers/attendanceController.js:779
+     TrainerCenterAllocation.findOne({ where: { t_id: trainer.t_id, tb_id: student.tb_id, center_id: student.center_id, course_id: student.course_id, }, })
+082. controllers/attendanceController.js:808
+     Center.findByPk(student.center_id, { attributes: ["center_name"] })
+083. controllers/attendanceController.js:809
+     Course.findByPk(student.course_id, { attributes: ["course_name", "course_full_name"], })
+084. controllers/candidateController.js:67
+     Course.findByPk(candidate.course_id, { attributes: ["course_name", "course_full_name"], })
+085. controllers/candidateController.js:72
+     Center.findByPk(candidate.center_id, { attributes: ["center_name"] })
+086. controllers/candidateController.js:75
+     TrainingBatch.findByPk(candidate.tb_id, { attributes: ["tb_name"], })
+087. controllers/candidateController.js:133
+     Candidate.findOne({ where: { cand_cnic: candidateData.cand_cnic, tb_id: candidateData.tb_id }, })
+088. controllers/candidateController.js:220
+     AdmissionControl.count({ where: { tb_id: Number(tb_id) }, })
+089. controllers/candidateController.js:233
+     Student.findOne({ where: { std_cnic: cnic, }, })
+090. controllers/candidateController.js:253
+     Candidate.findOne({ where: { cand_cnic: cnic, tb_id: tb_id }, include: [ { model: Course, as: "courses", attributes: ["course_name", "course_full_name"], }, { model: Center, as: "centers", attributes: ["center_name"], }, ], })
+091. controllers/candidateController.js:299
+     Candidate.findByPk(candidateId, { include: [ { model: Course, as: "courses", attributes: ["course_name", "course_full_name"], }, { model: Center, as: "centers", attributes: ["center_name"], }, { model: TrainingBatch, as: "training_batches", attributes: ["batch_name", "batch_status"], }, ], })
+092. controllers/candidateController.js:346
+     Candidate.findOne({ where: whereClause, attributes: ["cand_name", "cand_id", "cand_cnic"], })
+093. controllers/candidateController.js:350
+     Candidate.findAll({ where: whereClause, include: [ { model: Course, as: "courses", attributes: ["course_name", "course_full_name"], }, { model: Center, as: "centers", attributes: ["center_name"], }, ], })
+094. controllers/candidateController.js:380
+     Candidate.count({ where: whereClause })
+095. controllers/candidateController.js:381
+     Candidate.count({ where: { ...whereClause, cand_test_marks: { [Op.gt]: 10 } }, })
+096. controllers/candidateController.js:384
+     Candidate.count({ where: { ...whereClause, cand_test_marks: { [Op.gt]: 0, [Op.lte]: 10 }, }, })
+097. controllers/candidateController.js:391
+     Candidate.count({ where: { ...whereClause, // NULL is the normal state before a test is held; "" and "TBD" are // the placeholders the portal writes. All three mean "not attempted", // and matching only "" made this card read 0 for a whole batch. [Op.or]: [ { cand_test_marks: null }, { cand_test_marks: "" }, { cand_test_marks: "TBD" }, ], }, })
+098. controllers/candidateController.js:404
+     Candidate.count({ where: { ...whereClause, cand_admission_status: 2 }, })
+099. controllers/candidateController.js:407
+     Candidate.count({ where: { ...whereClause, [Op.and]: sequelize.where( sequelize.fn("DATE", sequelize.col("cand_apply_date")), "=", sequelize.fn("CURDATE") ), }, })
+100. controllers/candidateController.js:417
+     Candidate.count({ where: { ...whereClause, interview_date: { [Op.ne]: null }, }, })
+101. controllers/candidateController.js:423
+     Candidate.count({ where: { ...whereClause, recommended: "Yes", }, })
+102. controllers/candidateController.js:429
+     Candidate.count({ where: { ...whereClause, recommended: "No", }, })
+103. controllers/candidateController.js:435
+     Candidate.count({ where: { ...whereClause, cand_admission_status: 2, }, })
+104. controllers/candidateController.js:441
+     Candidate.count({ where: { ...whereClause, laptop_pc: "Yes", }, })
+105. controllers/candidateController.js:447
+     Candidate.count({ where: { ...whereClause, laptop_pc: "No", }, })
+106. controllers/candidateController.js:456
+     Candidate.findAll({ where: { ...whereClause, cand_admission_status: { [Op.in]: [1] }, // Added missing closing brace }, attributes: [ "cand_gender", [sequelize.fn("COUNT", sequelize.col("cand_id")), "total"], [ sequelize.fn( "SUM", sequelize.literal( "CASE WHEN cand_admission_status = 1 THEN 1 ELSE 0 END" ) ), "passed", ], ], group: ["cand_gender"], raw: true, })
+107. controllers/candidateController.js:479
+     Candidate.findAll({ where: { ...whereClause, cand_admission_status: { [Op.in]: [1] }, // Added missing closing brace }, attributes: [ [sequelize.fn("COUNT", sequelize.col("Candidate.cand_id")), "count"], [sequelize.col("courses.course_full_name"), "course_full_name"], [sequelize.col("courses.course_name"), "course_name"], ], include: [ { model: Course, as: "courses", attributes: [], }, ], group: ["courses.course_full_name", "courses.course_name"], raw: true, })
+108. controllers/candidateController.js:501
+     Candidate.findAll({ where: { ...whereClause, cand_admission_status: { [Op.in]: [1] }, cand_local_domicile: { [Op.ne]: null, }, // Added missing closing brace }, attributes: [ "cand_local_domicile", [sequelize.fn("COUNT", sequelize.col("cand_id")), "count"], ], group: ["cand_local_domicile"], raw: true, })
+109. controllers/candidateController.js:519
+     Candidate.findAll({ where: { ...whereClause, cand_admission_status: { [Op.in]: [1] }, // Added missing closing brace }, attributes: [ [sequelize.col("centers.center_name"), "center_name"], [sequelize.col("courses.course_name"), "course_name"], "cand_gender", [sequelize.fn("COUNT", sequelize.col("Candidate.cand_id")), "count"], ], include: [ { model: Center, as: "centers", attributes: [], required: true, }, { model: Course, as: "courses", attributes: [], required: true, }, ], group: ["centers.center_name", "courses.course_name", "cand_gender"], raw: true, })
+110. controllers/candidateController.js:661
+     Candidate.findOne({ where: whereClause, attributes: ["cand_name", "cand_id", "cand_cnic"], })
+111. controllers/candidateController.js:665
+     Candidate.findAll({ where: whereClause, include: [ { model: Course, as: "courses", attributes: ["course_name", "course_full_name"], }, { model: Center, as: "centers", attributes: ["center_name"], }, ], })
+112. controllers/candidateController.js:689
+     Candidate.count({ where: whereClause })
+113. controllers/candidateController.js:690
+     Candidate.count({ where: { ...whereClause, cand_test_marks: { [Op.gt]: 10 } }, })
+114. controllers/candidateController.js:693
+     Candidate.count({ where: { ...whereClause, cand_test_marks: { [Op.gt]: 0, [Op.lte]: 10 }, }, })
+115. controllers/candidateController.js:700
+     Candidate.count({ where: { ...whereClause, // NULL is the normal state before a test is held; "" and "TBD" are // the placeholders the portal writes. All three mean "not attempted", // and matching only "" made this card read 0 for a whole batch. [Op.or]: [ { cand_test_marks: null }, { cand_test_marks: "" }, { cand_test_marks: "TBD" }, ], }, })
+116. controllers/candidateController.js:713
+     Candidate.count({ where: { ...whereClause, cand_admission_status: 2 }, })
+117. controllers/candidateController.js:716
+     Candidate.count({ where: { ...whereClause, [Op.and]: sequelize.where( sequelize.fn("DATE", sequelize.col("cand_apply_date")), "=", sequelize.fn("CURDATE") ), }, })
+118. controllers/candidateController.js:729
+     Candidate.findAll({ where: whereClause, attributes: [ "cand_gender", [sequelize.fn("COUNT", sequelize.col("cand_id")), "total"], [ sequelize.fn( "SUM", sequelize.literal( "CASE WHEN cand_admission_status = 1 THEN 1 ELSE 0 END" ) ), "passed", ], ], group: ["cand_gender"], raw: true, })
+119. controllers/candidateController.js:749
+     Candidate.findAll({ where: whereClause, attributes: [ [sequelize.fn("COUNT", sequelize.col("Candidate.cand_id")), "count"], [sequelize.col("courses.course_full_name"), "course_full_name"], [sequelize.col("courses.course_name"), "course_name"], ], include: [ { model: Course, as: "courses", attributes: [], }, ], group: ["courses.course_full_name", "courses.course_name"], raw: true, })
+120. controllers/candidateController.js:768
+     Candidate.findAll({ where: { ...whereClause, cand_local_domicile: { [Op.ne]: null, }, }, attributes: [ "cand_local_domicile", [sequelize.fn("COUNT", sequelize.col("cand_id")), "count"], ], group: ["cand_local_domicile"], raw: true, })
+121. controllers/candidateController.js:784
+     Candidate.findAll({ where: whereClause, attributes: [ [sequelize.col("centers.center_name"), "center_name"], [sequelize.col("courses.course_name"), "course_name"], "cand_gender", [sequelize.fn("COUNT", sequelize.col("Candidate.cand_id")), "count"], ], include: [ { model: Center, as: "centers", attributes: [], required: true, }, { model: Course, as: "courses", attributes: [], required: true, }, ], group: ["centers.center_name", "courses.course_name", "cand_gender"], raw: true, })
+122. controllers/candidateController.js:925
+     Candidate.findByPk(candidateId)
+123. controllers/candidateController.js:1086
+     Candidate.findByPk(cand_id)
+124. controllers/candidateController.js:1093
+     Student.findOne({ where: { std_cnic: candidate.cand_cnic, tb_id: candidate.tb_id }, attributes: ["std_id", "std_rollno"], raw: true, })
+125. controllers/candidateController.js:1130
+     Center.findByPk(candidate.center_id, { attributes: ["center_name"] })
+126. controllers/candidateController.js:1131
+     Course.findByPk(candidate.course_id, { attributes: ["course_name", "course_full_name"], })
+127. controllers/candidateEnrollmentController.js:70
+     Student.findOne({ where: { std_rollno: candidateRoll }, attributes: ["std_id"], transaction, })
+128. controllers/candidateEnrollmentController.js:95
+     Candidate.findByPk(cand_id, { include: [ { model: Course, as: "courses", attributes: ["course_id", "course_name", "course_full_name"] }, { model: Center, as: "centers", attributes: ["center_id", "center_name"] }, { model: TrainingBatch, as: "training_batches", attributes: ["tb_id", "tb_name"] }, ], })
+129. controllers/candidateEnrollmentController.js:107
+     Student.findOne({ where: { std_cnic: candidate.cand_cnic, tb_id: candidate.tb_id }, attributes: ["std_id", "std_rollno"], raw: true, })
+130. controllers/candidateEnrollmentController.js:188
+     Student.findOne({ where: { std_cnic: candidate.cand_cnic, tb_id: candidate.tb_id }, attributes: ["std_id", "std_rollno"], transaction, })
+131. controllers/candidateEnrollmentController.js:210
+     User.findOne({ where: { user_email: email }, attributes: ["user_id"], transaction, })
+132. controllers/candidateEnrollmentController.js:339
+     Center.findByPk(centerId, { attributes: ["center_name"] })
+133. controllers/candidateEnrollmentController.js:340
+     Course.findByPk(courseId, { attributes: ["course_name", "course_full_name"] })
+134. controllers/candidateEnrollmentController.js:403
+     Candidate.findByPk(cand_id, { transaction })
+135. controllers/candidateEnrollmentController.js:531
+     Candidate.findAll({ where: { cand_cnic: { [Op.in]: [...lookups.keys()] }, tb_id, }, })
+136. controllers/candidateEnrollmentController.js:540
+     Candidate.findAll({ where: { cand_cnic: { [Op.in]: [...lookups.keys()] }, tb_id: { [Op.ne]: tb_id }, }, attributes: ["cand_cnic", "tb_id"], })
+137. controllers/candidateEnrollmentController.js:749
+     Candidate.findByPk(row.cand_id, { transaction })
+138. controllers/centersController.js:42
+     Center.findAll()
+139. controllers/centersController.js:54
+     Center.findByPk(id)
+140. controllers/centersController.js:94
+     Center.findByPk(id)
+141. controllers/centersDatesController.js:15
+     CentersDates.findOne({ where: { center_id, tb_id }, })
+142. controllers/centersDatesController.js:48
+     CentersDates.findByPk(centerDateId, { include: ["center", "trainingBatch"], })
+143. controllers/centersDatesController.js:78
+     CentersDates.findByPk(centerDateId)
+144. controllers/centerUsersController.js:29
+     User.findOne({ where: { [Op.or]: [{ user_username }, { user_email }], }, })
+145. controllers/centerUsersController.js:126
+     CenterUser.findOne({ where: { cu_user }, include: [{ model: Center, as: "center" }], })
+146. controllers/centerUsersController.js:308
+     CenterUser.findByPk(centerUserId, { attributes: { exclude: ["cu_pass"] }, })
+147. controllers/centerVisitController.js:54
+     MasterTrainer.findOne({ where: { user_id: user.id }, attributes: ["mt_id", "user_id", "mt_course_id"], raw: true, })
+148. controllers/centerVisitController.js:87
+     MasterTrainer.findAll({ where: { mt_id: { [Op.in]: mtIds } }, attributes: ["mt_id"], include: [{ model: User, as: "user", attributes: ["user_name"] }], })
+149. controllers/centerVisitController.js:127
+     CenterVisit.findAll({ where: { tb_id, cv_week_key: week.key, cv_owner_id: { [Op.in]: owners }, cv_center_id: { [Op.in]: centers.map((entry) => entry.center_id) }, }, attributes: [ "cv_id", "cv_center_id", "cv_owner_id", "mt_id", "cv_status", "cv_visit_date", "cv_submitted_on", "cv_media", ], raw: true, })
+150. controllers/centerVisitController.js:211
+     CenterVisit.findOne({ where: { tb_id, cv_week_key: week.key, cv_center_id: center.center_id, cv_owner_id: ownerFor(center, mt?.mt_id ?? -1), }, })
+151. controllers/centerVisitController.js:301
+     CenterVisit.findOne({ where: { tb_id, cv_week_key: week.key, cv_center_id: center.center_id, cv_owner_id: owner, }, })
+152. controllers/centerVisitController.js:449
+     CenterVisit.findOne({ where: { cv_id: Number(req.params.id) || 0 } })
+153. controllers/centerVisitController.js:484
+     CenterVisit.findOne({ where: { cv_id: Number(req.params.id) || 0 } })
+154. controllers/centerVisitController.js:530
+     CenterVisit.findAll({ where: { tb_id, cv_week_key: week.key }, attributes: [ "cv_id", "cv_center_id", "cv_owner_id", "mt_id", "cv_status", "cv_visit_date", "cv_visit_time", "cv_submitted_on", "cv_media", ], raw: true, })
+155. controllers/centerVisitController.js:549
+     MasterTrainer.count()
+156. controllers/centerVisitController.js:624
+     CenterVisit.findOne({ where: { cv_id: Number(req.params.id) || 0 } })
+157. controllers/centerVisitController.js:638
+     User.findOne({ where: { user_id: req.user.id }, attributes: ["user_name"], raw: true, })
+158. controllers/centerVisitController.js:714
+     CenterVisit.count({ where: { tb_id: row.tb_id, cv_week_key: week.key, cv_status: { [Op.in]: ["submitted", "reviewed"] }, cv_owner_id: { [Op.in]: [Number(mt.mt_id), SHARED_OWNER] }, cv_center_id: { [Op.in]: centers.map((entry) => entry.center_id) }, }, })
+159. controllers/classAnnouncementsController.js:22
+     Trainer.findOne({ where: { user_id: user_id }, })
+160. controllers/classAnnouncementsController.js:38
+     TrainerCenterAllocation.findAll({ where: { t_id: trainer.t_id, tb_id }, })
+161. controllers/classAnnouncementsController.js:110
+     Trainer.findOne({ where: { user_id: user_id }, })
+162. controllers/classAnnouncementsController.js:121
+     TrainerCenterAllocation.findAll({ where: { t_id: trainer.t_id, tb_id }, })
+163. controllers/classAnnouncementsController.js:140
+     MasterTrainer.findOne({ where: { user_id: user_id }, })
+164. controllers/classAnnouncementsController.js:149
+     Student.findOne({ where: { user_id: user_id }, })
+165. controllers/classAnnouncementsController.js:158
+     ClassAnnouncements.findAll({ where: whereClause, include: [ { model: Trainer, as: "trainer", include: [ { model: User, as: "user", attributes: ["user_name"], }, ], }, { model: Course, as: "course", attributes: ["course_name"], }, { model: Center, as: "center", attributes: ["center_name"], }, { model: TrainingBatch, as: "training_batch", attributes: ["tb_name"], }, ], order: [["ca_added_on", "DESC"]], })
+166. controllers/classAnnouncementsController.js:210
+     ClassAnnouncements.findByPk(id)
+167. controllers/classAnnouncementsController.js:243
+     ClassAnnouncements.findByPk(id)
+168. controllers/classAnnouncementsController.js:282
+     Student.findAll({ where: { tb_id: tb_id, course_id: course_id, center_id: center_id, }, include: [ { model: User, as: "user", attributes: ["user_email", "user_name"], }, ], })
+169. controllers/classScheduleController.js:88
+     Candidate.findAll({ where: { tb_id }, attributes: [ [fn("DISTINCT", col("center_id")), "center_id"], "course_id", ], group: ["center_id", "course_id"], raw: true, })
+170. controllers/classScheduleController.js:97
+     Student.findAll({ where: { tb_id }, attributes: ["center_id", "course_id"], group: ["center_id", "course_id"], raw: true, })
+171. controllers/classScheduleController.js:103
+     ClassSchedule.findAll({ where: { tb_id } })
+172. controllers/classScheduleController.js:104
+     Center.findAll({ attributes: ["center_id", "center_name"], raw: true })
+173. controllers/classScheduleController.js:105
+     Course.findAll({ attributes: ["course_id", "course_name", "course_full_name"], raw: true, })
+174. controllers/classScheduleController.js:211
+     ClassSchedule.findOne({ where })
+175. controllers/classScheduleController.js:252
+     ClassSchedule.findByPk(req.params.cs_id)
+176. controllers/classScheduleController.js:274
+     ClassSchedule.findOne({ where: { center_id, course_id, tb_id }, transaction, })
+177. controllers/courseController.js:15
+     Course.findOne({ where: { course_name }, })
+178. controllers/courseController.js:50
+     Course.findByPk(courseId)
+179. controllers/courseController.js:64
+     Course.findAll()
+180. controllers/courseController.js:86
+     Course.findByPk(courseId)
+181. controllers/courseModuleController.js:10
+     TrainerCenterAlocation.findOne({ where: { tb_id, course_id, center_id }, include: [ { model: Trainer, as: "trainer" } ] })
+182. controllers/courseModuleController.js:27
+     CourseModule.findAll({ where: { course_id }, include: [ { model: Course, as: "courseModules" }, { model: Topic, as: "courseTopics", include: topicInclude } ] })
+183. controllers/courseModuleController.js:45
+     CourseModule.findByPk(req.params.id)
+184. controllers/courseModuleController.js:109
+     CourseModule.findByPk(req.params.id)
+185. controllers/courseModuleController.js:140
+     CourseModule.findByPk(req.params.id, { include: [ { model: Topic, as: "courseTopics", include: [ { model: TrainerTopicReport, as: "trainerReports", include: [{ model: Trainer, as: "trainer" }] } ] } ] })
+186. controllers/courseModuleController.js:161
+     CourseModule.findByPk(req.params.id)
+187. controllers/courseModuleController.js:165
+     Topic.findAll({ where: { module_id: req.params.id } })
+188. controllers/dailyLectureReportController.js:41
+     Trainer.findOne({ where: { user_id: t_id } })
+189. controllers/dailyLectureReportController.js:52
+     TrainerCenterAllocation.findAll({ where: { t_id: trainer.t_id, tb_id }, })
+190. controllers/dailyLectureReportController.js:69
+     DailyLectureReport.findAll({ where: { t_id: trainer.t_id, tb_id, dlr_date }, attributes: ["center_id", "course_id"], raw: true, })
+191. controllers/dailyLectureReportController.js:145
+     Trainer.findOne({ where: { user_id: t_id } })
+192. controllers/dailyLectureReportController.js:153
+     MasterTrainerModel.findOne({ where: { user_id: t_id } })
+193. controllers/dailyLectureReportController.js:163
+     CenterDates.findOne({ where: { tb_id: conditions.tb_id, center_id: conditions.center_id }, })
+194. controllers/dailyLectureReportController.js:199
+     Holiday.findAll({ where: { tb_id: conditions.tb_id, h_date: { [Op.between]: [startDate, endDate] }, }, attributes: ["h_date"], raw: true, })
+195. controllers/dailyLectureReportController.js:214
+     DailyLectureReport.findAll({ where: conditions, include: [ { model: Center, as: "centers", attributes: ["center_id", "center_name"], }, { model: Course, as: "courses", attributes: ["course_id", "course_name"], }, { model: Trainer, as: "trainers", attributes: ["t_id", "user_id"], include: [ { model: User, as: "user", attributes: ["user_name", "user_profile_photo"], }, ], }, { model: TrainingBatch, as: "training_batches", attributes: ["tb_id", "tb_name"], }, ], order: [["dlr_date", "DESC"]], // Show newest reports first })
+196. controllers/dailyLectureReportController.js:287
+     DailyLectureReport.findByPk(req.params.id, { include: ["trainers", "centers", "courses", "training_batches"], })
+197. controllers/dailyLectureReportController.js:301
+     DailyLectureReport.findByPk(req.params.id)
+198. controllers/dailyLectureReportController.js:314
+     DailyLectureReport.findByPk(req.params.id)
+199. controllers/dashboarController.js:44
+     student.findOne({ where: { user_id: user_id, }, })
+200. controllers/dashboarController.js:60
+     StudentDocuments.findAll({ where: userType === "student" ? { std_cnic: studentProfile.std_cnic, tb_id: tb_id } : { tb_id: tb_id }, order: [["doc_date", "DESC"]], })
+201. controllers/dashboarController.js:107
+     ExamAssignment.findOne({ where: { tb_id: studentProfile.tb_id, std_cnic: studentProfile.std_cnic, ea_type: "FINAL", }, })
+202. controllers/dashboarController.js:125
+     Assignment.findAll({ where: { ...whereClause, }, attributes: ["as_title", "as_marks", "as_deadline", "as_id"], raw: true, })
+203. controllers/dashboarController.js:139
+     Course.findOne({ where: { course_id: course_id, }, })
+204. controllers/dashboarController.js:144
+     Center.findOne({ where: { center_id: center_id, }, })
+205. controllers/dashboarController.js:153
+     assignmentSubmission.findOne({ where: { std_rollno: studentProfile.std_rollno, tb_id: tb_id, as_id: assignment.as_id, }, })
+206. controllers/dashboarController.js:177
+     assignmentSubmission.count({ where: { std_rollno: studentProfile.std_rollno, tb_id: tb_id, as_submission_status: { [Op.ne]: 2, // Not equal to status 2 (rejected/needs resubmission) }, }, })
+207. controllers/dashboarController.js:209
+     Assignment.count({ where: { tb_id: tb_id, course_id: course_id, center_id: center_id, }, })
+208. controllers/dashboarController.js:217
+     assignmentSubmission.count({ where: { std_rollno: studentProfile.std_rollno, tb_id: tb_id, }, })
+209. controllers/dashboarController.js:233
+     TrainerCenterAllocation.findAll({ where: { tb_id: tb_id, center_id: studentProfile.center_id, course_id: studentProfile.course_id, }, })
+210. controllers/dashboarController.js:244
+     Quiz.count({ where: { tb_id: tb_id, t_id: { [Op.in]: classTrainerIds }, }, })
+211. controllers/dashboarController.js:252
+     QuizAttempts.count({ where: { std_cnic: studentProfile.std_cnic, tb_id: tb_id, }, })
+212. controllers/dashboarController.js:264
+     User.findOne({ where: { user_id: user_id, }, })
+213. controllers/dashboarController.js:296
+     QuizAttempts.findAll({ where: userType === "student" ? { std_cnic: studentProfile.std_cnic, tb_id: tb_id } : { tb_id: tb_id }, include: [ { model: Quiz, as: "student_quiz", attributes: ["quiz_title"], }, ], order: [["attempt_id", "ASC"]], })
+214. controllers/dashboarController.js:318
+     assignmentSubmission.findAll({ where: userType === "student" ? { std_rollno: studentProfile.std_rollno, tb_id: tb_id } : { tb_id: tb_id }, })
+215. controllers/dashboarController.js:336
+     Quiz.count({ where: { tb_id: tb_id, t_id: { [Op.in]: classTrainerIds }, }, })
+216. controllers/dashboarController.js:342
+     QuizAttempts.count({ where: { std_cnic: studentProfile.std_cnic, tb_id: tb_id, }, })
+217. controllers/dashboarController.js:355
+     Earnings.sum("earning_amount", { where: { std_id: studentProfile.std_id, tb_id: tb_id, }, })
+218. controllers/dashboarController.js:364
+     ClassAnnouncements.findOne({ where: userType === "student" ? { center_id: center_id, course_id: course_id, tb_id: tb_id } : { ...whereClause }, order: [["ca_added_on", "DESC"]], })
+219. controllers/dashboarController.js:376
+     ClassAnnouncements.findAll({ where: { ...whereClause }, order: [["ca_added_on", "DESC"]], })
+220. controllers/dashboarController.js:386
+     Quiz.findAll({ where: { tb_id, ...(userType === "student" ? { t_id: { [Op.in]: classTrainerIds } } : {}), }, order: [["quiz_created_on", "DESC"]], })
+221. controllers/dashboarController.js:396
+     Assignment.findAll({ where: { ...whereClause }, order: [["as_added_on", "DESC"]], })
+222. controllers/dashboarController.js:401
+     Earnings.findAll({ where: userType === "student" ? { std_id: studentProfile.std_id, tb_id: tb_id } : { tb_id: tb_id }, order: [["earning_date", "DESC"]], })
+223. controllers/dashboarController.js:409
+     Ticket.findAll({ where: userType === "student" ? { std_rollno: studentProfile.std_rollno, tb_id: tb_id } : { tb_id: tb_id }, order: [["ticket_date", "DESC"]], })
+224. controllers/dashboarController.js:417
+     LectureRecordings.findAll({ where: { ...whereClause }, order: [["lr_added_on", "DESC"]], })
+225. controllers/dashboarController.js:422
+     LearningResoruces.findAll({ where: { ...whereClause }, order: [["ls_added_on", "DESC"]], })
+226. controllers/dashboarController.js:429
+     WeaklyFeedback.findAll({ where: userType === "student" ? { std_rollno: studentProfile.std_rollno, tb_id: tb_id } : { tb_id: tb_id }, order: [["sf_date", "DESC"]], })
+227. controllers/dashboarController.js:437
+     TrainingBatchModel.findAll({ where: { tb_id: studentProfile.tb_id }, })
+228. controllers/dashboarController.js:440
+     Center.findAll({ where: { center_id: studentProfile.center_id }, })
+229. controllers/dashboarController.js:443
+     Course.findAll({ where: { course_id: studentProfile.course_id }, })
+230. controllers/dashboarController.js:517
+     TrainerModel.findOne({ where: { user_id: user_id }, })
+231. controllers/dashboarController.js:526
+     TrainerCenterAllocation.findAll({ where: { t_id: trainer.t_id, tb_id: tb_id }, })
+232. controllers/dashboarController.js:574
+     StudentLeaves.count({ where: { ...classScope, tb_id: tb_id, sl_status: 0, }, })
+233. controllers/dashboarController.js:583
+     CenterDates.findOne({ where: { center_id: allowedCenters[0], tb_id: tb_id, }, })
+234. controllers/dashboarController.js:633
+     Holiday.findAll({ where: { tb_id, h_date: { [Op.between]: [startDateString, currentDateString] }, }, attributes: ["h_date"], raw: true, })
+235. controllers/dashboarController.js:652
+     Attendance.findAll({ where: { tb_id, ...classScope, attend_date: { [Op.between]: [startDateString, currentDateString] }, }, attributes: ["attend_date"], raw: true, })
+236. controllers/dashboarController.js:689
+     Attendance.findOne({ where: { tb_id, ...classScope, attend_date: todayFormatted, }, })
+237. controllers/dashboarController.js:699
+     DailyReport.findOne({ where: { tb_id, ...classScope, t_id: trainer.t_id, dlr_date: todayFormatted, }, })
+238. controllers/dashboarController.js:715
+     Assignment.findAll({ where: { tb_id, ...classScope, }, limit: 5, order: [["as_added_on", "DESC"]], })
+239. controllers/dashboarController.js:724
+     student.count({ where: { tb_id, ...classScope, std_lms_status: 1, }, })
+240. controllers/dashboarController.js:732
+     student.count({ where: { tb_id, ...classScope, }, })
+241. controllers/dashboarController.js:739
+     Earnings.sum("earning_amount", { where: { tb_id, ...classScope, earning_status: 1, }, })
+242. controllers/dashboarController.js:750
+     Earnings.count({ where: { tb_id, ...classScope, earning_status: 1, }, })
+243. controllers/dashboarController.js:759
+     Ticket.count({ where: { tb_id, ticket_status: "open", t_id: trainer.t_id, // Unanswered tickets rely on the trainer id directly }, })
+244. controllers/dashboarController.js:802
+     MasterTrainer.findAll({ where: { user_id: user_id }, attributes: ["mt_course_id"], })
+245. controllers/dashboarController.js:825
+     TrainerCenterAllocation.findAll({ where: { course_id: { [Op.in]: masterTrainerCourseIds }, tb_id: tb_id, }, include: [ { model: TrainerModel, as: "trainer", include: [ { model: User, as: "user", attributes: ["user_name"], // Include trainer name }, ], }, { model: Center, as: "center", attributes: ["center_name"], // Include center name }, { model: Course, as: "course", attributes: ["course_name"], }, ], })
+246. controllers/dashboarController.js:869
+     student.count({ where: { course_id: { [Op.in]: masterTrainerCourseIds }, center_id: { [Op.in]: allowedCenters }, tb_id: tb_id }, })
+247. controllers/dashboarController.js:877
+     Ticket.count({ where: { tb_id, course_id: { [Op.in]: masterTrainerCourseIds }, center_id: { [Op.in]: allowedCenters } }, })
+248. controllers/dashboarController.js:885
+     Assignment.count({ where: { tb_id, course_id: { [Op.in]: masterTrainerCourseIds }, center_id: { [Op.in]: allowedCenters } }, })
+249. controllers/dashboarController.js:896
+     Quiz.count({ where: { tb_id, t_id: { [Op.in]: trainerIds }, // Use t_id from trainerCenters }, })
+250. controllers/dashboarController.js:903
+     Earnings.sum("earning_amount", { where: { tb_id, course_id: { [Op.in]: masterTrainerCourseIds }, center_id: { [Op.in]: allowedCenters }, earning_status: 1, }, })
+251. controllers/dashboarController.js:914
+     Earnings.sum("earning_amount", { where: { tb_id, t_id: allocation.t_id, center_id: allocation.center_id, course_id: allocation.course_id, earning_status: 1, }, })
+252. controllers/dashboarController.js:925
+     CenterDates.findOne({ where: { tb_id, center_id: allocation.center_id }, })
+253. controllers/dashboarController.js:960
+     Holiday.findAll({ where: { tb_id, h_date: { [Op.between]: [startDate, endDate] }, }, attributes: ["h_date"], raw: true, })
+254. controllers/dashboarController.js:972
+     DailyReport.findAll({ where: { tb_id, t_id: allocation.t_id, center_id: allocation.center_id, course_id: allocation.course_id, }, attributes: ["dlr_date"], raw: true, })
+255. controllers/dashboarController.js:1036
+     CenterUsers.findOne({ where: { user_id: user_id }, })
+256. controllers/dashboarController.js:1048
+     student.findAll({ where: { tb_id: tb_id, center_id: centerUser.center_id, }, include: [ { model: Center, as: "centers", attributes: ["center_name"] }, { model: Course, as: "courses", attributes: ["course_name"] }, { model: TrainingBatchModel, as: "training_batches", attributes: ["tb_name"], }, ], })
+257. controllers/dashboarController.js:1064
+     Earnings.findAll({ where: { tb_id: tb_id, center_id: centerUser.center_id, }, })
+258. controllers/earningsController.js:19
+     MasterTrainer.findAll({ where: { user_id: userId }, attributes: ["mt_course_id"], })
+259. controllers/earningsController.js:71
+     User.findByPk(user_id, { attributes: ["user_name", "user_email", "user_type"], })
+260. controllers/earningsController.js:83
+     Student.findOne({ where: { user_id: user_id, }, attributes: ["std_id", "center_id", "course_id"], // Removed t_id from here })
+261. controllers/earningsController.js:96
+     TrainerCenterAllocationModel.findOne({ where: { tb_id: tb_id, center_id: center_id, course_id: course_id, }, attributes: ["t_id"], })
+262. controllers/earningsController.js:186
+     EarningsModel.findAll({ include: [ { model: Student, attributes: ["std_name", "std_email"], }, { model: Trainer, attributes: ["t_name", "t_email"], }, { model: TrainingBatch, attributes: ["tb_name"], }, { model: Center, attributes: ["center_name"], }, { model: Course, attributes: ["course_name"], }, ], order: [["earning_date", "DESC"]], })
+263. controllers/earningsController.js:228
+     Student.findOne({ where: { user_id }, })
+264. controllers/earningsController.js:236
+     EarningsModel.findAll({ where: { tb_id, std_id: student.std_id }, order: [["earning_id", "DESC"]], })
+265. controllers/earningsController.js:260
+     EarningsModel.findAll({ where: { std_id }, include: [ { model: Student, attributes: ["std_name", "std_email"], }, { model: Course, attributes: ["course_name"], }, ], order: [["earning_date", "DESC"]], })
+266. controllers/earningsController.js:328
+     EarningsModel.findByPk(earning_id)
+267. controllers/earningsController.js:392
+     EarningsModel.findByPk(earning_id)
+268. controllers/earningsController.js:447
+     EarningsModel.findAll({ where: conditions, include: [ { model: Student, as: "students", required: true, attributes: [ "std_id", "user_id", "std_gender", "center_id", "course_id", "std_phone", ], include: [ { model: User, as: "user", attributes: ["user_name", "user_profile_photo"], }, ], }, { model: Center, as: "centers", attributes: ["center_id", "center_name"], }, { model: Course, as: "courses", attributes: ["course_id", "course_name"], }, { model: Trainer, as: "trainers", attributes: ["t_id", "user_id"], include: [ { model: User, as: "user", attributes: ["user_name", "user_profile_photo"], }, ], }, { model: TrainingBatch, as: "training_batches", attributes: ["tb_id", "tb_name"], }, ], order: [["earning_date", "DESC"]], })
+269. controllers/earningsController.js:526
+     TrainerCenterAllocationModel.findOne({ where: { course_id: courseId, center_id: centerId, tb_id: earning.tb_id, }, include: [ { model: Trainer, as: "trainer", include: [ { model: User, as: "user", attributes: ["user_name", "user_profile_photo"], }, ], }, { model: Center, as: "center", attributes: ["center_id", "center_name"], }, { model: Course, as: "course", attributes: ["course_id", "course_name"], }, { model: TrainingBatch, as: "training_batch", attributes: ["tb_id", "tb_name"], }, ], })
+270. controllers/earningsController.js:989
+     Trainer.findOne({ where: { user_id }, })
+271. controllers/earningsController.js:994
+     TrainerCenterAllocationModel.findOne({ where: { tb_id, t_id: mt.t_id, }, })
+272. controllers/emailCampaignController.js:74
+     EmailCampaignRecipient.findAll({ where: { ec_id: { [Op.in]: campaignIds } }, attributes: ["ec_id", "ecr_status", [fn("COUNT", col("ecr_id")), "count"]], group: ["ec_id", "ecr_status"], raw: true, })
+273. controllers/emailCampaignController.js:308
+     EmailCampaign.findAll({ order: [["ec_id", "DESC"]], })
+274. controllers/emailCampaignController.js:339
+     EmailCampaign.findByPk(req.params.id)
+275. controllers/emailCampaignController.js:371
+     EmailCampaignRecipient.findAndCountAll({ where, // No joins: a list recipient is an address, with nothing behind it to // include. Including candidate/student here is what produced the // "associated to student using an alias" failure. attributes: [ "ecr_id", "ecr_email", "ecr_name", "ecr_status", "ecr_sent_at", "ecr_attempts", "ecr_error", ], order: [["ecr_id", "ASC"]], limit: pageSize, offset: (page - 1) * pageSize, })
+276. controllers/emailCampaignController.js:419
+     EmailCampaign.findByPk(req.params.id)
+277. controllers/emailCampaignController.js:426
+     EmailCampaignRecipient.findAll({ where: { ec_id: campaign.ec_id }, order: [["ecr_id", "ASC"]], })
+278. controllers/emailCampaignController.js:475
+     EmailCampaign.findByPk(req.params.id)
+279. controllers/emailCampaignController.js:503
+     EmailCampaign.findByPk(req.params.id)
+280. controllers/emailCampaignController.js:574
+     EmailCampaign.findByPk(req.params.id)
+281. controllers/emailCampaignController.js:599
+     EmailCampaignRecipient.count({ where: { ec_id: campaign.ec_id, ecr_status: "pending" }, })
+282. controllers/emailCampaignController.js:641
+     EmailCampaign.findByPk(req.params.id)
+283. controllers/emailVerificationController.js:143
+     EmailVerification.findOne({ where: { ev_email: email } })
+284. controllers/emailVerificationController.js:310
+     EmailVerification.findOne({ where: { ev_email: email } })
+285. controllers/emailVerificationController.js:374
+     EmailVerification.findOne({ where: { ev_email: email }, attributes: ["ev_verified_at"], })
+286. controllers/emailVerificationController.js:393
+     EmailVerification.findOne({ where: { ev_email: normaliseEmail(email) }, attributes: ["ev_verified_at"], })
+287. controllers/examAssessmentController.js:16
+     TrainingBatch.findByPk(tb_id)
+288. controllers/examAssessmentController.js:17
+     Center.findByPk(center_id)
+289. controllers/examAssessmentController.js:18
+     Course.findByPk(course_id)
+290. controllers/examAssessmentController.js:28
+     Student.findOne({ where: { std_cnic }, })
+291. controllers/examAssessmentController.js:40
+     ExamAssessment.findOne({ where: { std_cnic, tb_id, ea_type, }, })
+292. controllers/examAssessmentController.js:107
+     ExamAssessment.findAll({ where: { std_cnic, tb_id, ea_type, }, include: [ { model: TrainingBatch, as: "training_batches" }, { model: Center, as: "centers" }, { model: Course, as: "courses" }, ], })
+293. controllers/examAssessmentController.js:142
+     MasterTrainerModel.findOne({ where: { user_id: user_id }, })
+294. controllers/examAssessmentController.js:154
+     ExamAssessment.findAll({ where: whereClause, include: [ { model: TrainingBatch, as: "training_batches" }, { model: Center, as: "centers" }, { model: Course, as: "courses" }, ], })
+295. controllers/examAssessmentController.js:165
+     Student.findOne({ where: { std_cnic: assessment.std_cnic }, include: [{ model: User, as: "user" }], })
+296. controllers/examAssessmentController.js:170
+     Earning.sum("earning_amount", { where: { std_id: student ? student.std_id : null, tb_id: assessment.tb_id, }, })
+297. controllers/examAssessmentController.js:207
+     ExamAssessment.findAll({ where: { ea_type: "Final", total_score: { [Op.gte]: 60 } }, include: [ { model: TrainingBatch, as: "training_batches" }, { model: Center, as: "centers" }, { model: Course, as: "courses" }, ], })
+298. controllers/examAssessmentController.js:221
+     Student.findOne({ where: { std_cnic: assessment.std_cnic }, include: [{ model: User, as: "user" }], })
+299. controllers/examAssessmentController.js:226
+     Earning.sum("earning_amount", { where: { std_id: student ? student.std_id : null, tb_id: assessment.tb_id, }, })
+300. controllers/examAssessmentController.js:270
+     MasterTrainerModel.findOne({ where: { user_id }, })
+301. controllers/examAssessmentController.js:281
+     ExamAssessment.findAll({ where: whereClause, include: [ { model: TrainingBatch, as: "training_batches" }, { model: Center, as: "centers" }, { model: Course, as: "courses" }, ], order: [["ea_id", "DESC"]], })
+302. controllers/examAssessmentController.js:309
+     ExamAssessment.findByPk(req.params.id, { include: [ { model: TrainingBatch, as: "training_batches" }, { model: Center, as: "centers" }, { model: Course, as: "courses" }, ], })
+303. controllers/examAssessmentController.js:350
+     ExamAssessment.findByPk(req.params.id)
+304. controllers/examAssessmentController.js:399
+     ExamAssessment.findByPk(req.params.id)
+305. controllers/feedbackController.js:17
+     StudentsFeedback.findAll()
+306. controllers/feedbackController.js:48
+     Student.findOne({ where: { user_id: userId } })
+307. controllers/feedbackController.js:67
+     StudentsFeedback.findOne({ where: { std_rollno: student.std_rollno, tb_id: student.tb_id, sf_week: week }, attributes: ["sf_id", "sf_date"], })
+308. controllers/feedbackController.js:147
+     TrainerCenterAllocation.findOne({ where: { tb_id: student.tb_id, center_id: student.center_id, course_id: student.course_id, }, order: [["t_id", "ASC"]], })
+309. controllers/feedbackController.js:165
+     StudentsFeedback.findOne({ where: { std_rollno: student.std_rollno, tb_id: student.tb_id, sf_week: week }, attributes: ["sf_id", "sf_date"], })
+310. controllers/feedbackController.js:269
+     StudentsFeedback.findByPk(id)
+311. controllers/feedbackController.js:301
+     StudentsFeedback.findAll({ where: { tb_id }, })
+312. controllers/feedbackController.js:319
+     MastterTrainer.findOne({ where: { user_id: user_id }, attributes: ["mt_course_id"], // Explicitly select course_id })
+313. controllers/feedbackController.js:343
+     StudentsFeedback.findAll({ where: condition, raw: true, })
+314. controllers/feedbackController.js:350
+     Student.findOne({ where: { std_rollno: feedback.std_rollno }, include: [ { model: User, as: "user", attributes: ["user_name", "user_profile_photo"], }, { model: Course, as: "courses", attributes: ["course_name"], }, { model: Center, as: "centers", attributes: ["center_name"], }, ], raw: true, nest: true, })
+315. controllers/feedbackController.js:418
+     StudentsFeedback.findAll({ where: { tb_id, center_id, course_id }, })
+316. controllers/feedbackController.js:432
+     Trainer.findOne({ where: { user_id: user_id }, })
+317. controllers/feedbackController.js:444
+     StudentsFeedback.findAll({ where: { tb_id, t_id: trainer.t_id }, })
+318. controllers/freelancingController.js:6
+     Student.findOne({ where: { user_id: user_id }, })
+319. controllers/freelancingController.js:18
+     StudentsFreelancing.findAll({ where: { std_cnic: student.std_cnic }, })
+320. controllers/freelancingController.js:30
+     Student.findOne({ where: { user_id: user_id }, })
+321. controllers/freelancingController.js:36
+     StudentsFreelancing.findOne({ where: { std_cnic: student.std_cnic, ep_name }, })
+322. controllers/freelancingController.js:51
+     StudentsFreelancing.findAll({ where: { std_cnic: student.std_cnic }, })
+323. controllers/freelancingController.js:74
+     StudentsFreelancing.findByPk(id)
+324. controllers/generateCertificate.js:13
+     CenterDates.findOne({ where: { center_id: data.center_id, tb_id: data.tb_id }, })
+325. controllers/holidaysController.js:8
+     HolidaysModel.findAll({ include: [{ model: TrainingBatch, as: "training_batches" }], })
+326. controllers/holidaysController.js:31
+     HolidaysModel.findAll({ where, include: [ { model: TrainingBatch, as: "training_batches" }, { model: Center, as: "centers" }, ], })
+327. controllers/holidaysController.js:79
+     HolidaysModel.findByPk(req.params.id)
+328. controllers/learningResourceController.js:19
+     Trainer.findOne({ where: { user_id: req.body.t_id, }, })
+329. controllers/learningResourceController.js:29
+     TrainerAlocation.findAll({ where: { tb_id: req.body.tb_id, t_id: trainer.t_id, }, })
+330. controllers/learningResourceController.js:83
+     Trainer.findOne({ where: { user_id: t_id, }, })
+331. controllers/learningResourceController.js:97
+     MasterTrainer.findOne({ where: { user_id: t_id, }, })
+332. controllers/learningResourceController.js:109
+     LearningResource.findAll({ where: whereClause, include: [ { model: Trainer, as: "trainers", attributes: ["t_id", "user_id"] }, { model: TrainingBatch, as: "training_batches", attributes: ["tb_id", "tb_name"], }, { model: Center, as: "centers", attributes: ["center_id", "center_name"], }, { model: Course, as: "courses", attributes: ["course_id", "course_name"], }, ], order: [["ls_added_on", "DESC"]], })
+333. controllers/learningResourceController.js:142
+     LearningResource.findByPk(req.params.id, { include: [ { model: Trainer, as: "trainer" }, { model: TrainingBatch, as: "training_batch" }, { model: Center, as: "center" }, { model: Course, as: "course" }, ], })
+334. controllers/learningResourceController.js:173
+     LearningResource.findByPk(req.params.id)
+335. controllers/learningResourceController.js:203
+     LearningResource.findByPk(req.params.id)
+336. controllers/lectureRecordingController.js:19
+     Trainer.findOne({ where: { user_id: req.body.t_id, }, })
+337. controllers/lectureRecordingController.js:29
+     TrainerAlocation.findAll({ where: { tb_id: req.body.tb_id, t_id: trainer.t_id, }, })
+338. controllers/lectureRecordingController.js:80
+     Trainer.findOne({ where: { user_id: t_id, }, })
+339. controllers/lectureRecordingController.js:94
+     MasterTrainer.findOne({ where: { user_id: t_id, }, })
+340. controllers/lectureRecordingController.js:106
+     LectureRecording.findAll({ where: whereClause, include: [ { model: Trainer, as: "trainers", attributes: ["t_id", "user_id"] }, { model: TrainingBatch, as: "training_batches", attributes: ["tb_id", "tb_name"], }, { model: Center, as: "centers", attributes: ["center_id", "center_name"], }, { model: Course, as: "courses", attributes: ["course_id", "course_name"], }, ], order: [["lr_date", "DESC"]], })
+341. controllers/lectureRecordingController.js:139
+     LectureRecording.findByPk(req.params.id, { include: [ { model: Trainer, as: "trainer" }, { model: TrainingBatch, as: "training_batch" }, { model: Center, as: "center" }, { model: Course, as: "course" }, ], })
+342. controllers/lectureRecordingController.js:170
+     LectureRecording.findByPk(req.params.id)
+343. controllers/lectureRecordingController.js:193
+     LectureRecording.findByPk(req.params.id)
+344. controllers/masterTrainersController.js:26
+     User.findOne({ where: { user_email }, })
+345. controllers/masterTrainersController.js:195
+     MasterTrainer.findByPk(masterTrainerId, { attributes: { exclude: ["mt_password"] }, })
+346. controllers/notificationController.js:29
+     Notification.findAll({ where, order: [["id", "DESC"]], limit: limit + 1, raw: true, })
+347. controllers/notificationController.js:56
+     Notification.count({ where: { user_id: req.user && req.user.id, read_at: null }, })
+348. controllers/onlineClassReportController.js:38
+     MasterTrainer.findOne({ where: { user_id: user.id }, attributes: ["mt_id", "user_id", "mt_course_id"], raw: true, })
+349. controllers/onlineClassReportController.js:72
+     MasterTrainer.findAll({ where: { mt_id: { [Op.in]: ids } }, attributes: ["mt_id"], include: [{ model: User, as: "user", attributes: ["user_name"] }], })
+350. controllers/onlineClassReportController.js:108
+     OnlineClassReport.findAll({ where: { tb_id, ocr_week_key: week.key, ocr_center_id: { [Op.in]: centers.map((center) => center.center_id) }, }, attributes: [ "ocr_id", "ocr_center_id", "mt_id", "ocr_status", "ocr_submitted_on", "ocr_reviewed_by_name", ], raw: true, })
+351. controllers/onlineClassReportController.js:204
+     OnlineClassReport.findOne({ where: { tb_id, ocr_week_key: week.key, ocr_center_id: center.center_id }, })
+352. controllers/onlineClassReportController.js:267
+     OnlineClassReport.findOne({ where: { tb_id, ocr_week_key: week.key, ocr_center_id: center.center_id }, })
+353. controllers/onlineClassReportController.js:365
+     OnlineClassReport.findOne({ where: { ocr_id: Number(req.params.id) || 0 }, })
+354. controllers/onlineClassReportController.js:410
+     OnlineClassReport.findOne({ where: { ocr_id: Number(req.params.id) || 0 }, })
+355. controllers/onlineClassReportController.js:426
+     User.findOne({ where: { user_id: req.user.id }, attributes: ["user_name"], raw: true, })
+356. controllers/profileController.js:182
+     Trainer.findOne({ where: { user_id } })
+357. controllers/profileController.js:192
+     TrainerCenterAllocation.findAll({ where: { t_id: trainer.t_id, tb_id }, })
+358. controllers/profileController.js:274
+     TrainingBatch.findOne({ where: { tb_id } })
+359. controllers/quizController.js:46
+     Teacher.findOne({ where: { user_id: t_id } })
+360. controllers/quizController.js:86
+     TrainerCenterAllocation.findAll({ where: { t_id, tb_id }, raw: true })
+361. controllers/quizController.js:122
+     StudentQuiz.findOne({ where: { quiz_code }, include: [ { model: Teacher, as: "teacher", attributes: ["t_name"] }, { model: StudentQuizQuestions, as: "questions", attributes: [ "q_id", "q_title", "a1", "a2", "a3", "a4", "correct_a", "correct_a_reason", ], }, ], })
+362. controllers/quizController.js:165
+     Student.findOne({ where: { user_id } })
+363. controllers/quizController.js:178
+     StudentQuiz.findOne({ where: { quiz_code } })
+364. controllers/quizController.js:185
+     StudentQuizAttempts.count({ where: { quiz_code, std_cnic: student.std_cnic, }, })
+365. controllers/quizController.js:223
+     StudentQuizQuestions.findAll({ where: { quiz_code }, attributes: ["q_id", "q_title", "a1", "a2", "a3", "a4"], order: sequelize.literal("RAND()"), transaction: t, })
+366. controllers/quizController.js:302
+     StudentQuizAttempts.findOne({ where: { attempt_session }, transaction: t, })
+367. controllers/quizController.js:320
+     StudentQuiz.findOne({ where: { quiz_code: attempt.quiz_code }, transaction: t, })
+368. controllers/quizController.js:341
+     StudentQuizQuestions.findAll({ where: { quiz_code: attempt.quiz_code }, transaction: t, })
+369. controllers/quizController.js:438
+     StudentQuizAttempts.findAll({ where: { std_cnic, attempt_status: 1, }, include: [ { model: StudentQuiz, as: "quiz", attributes: ["quiz_title", "quiz_passing_score"], }, { model: Course, as: "course", attributes: ["course_name"], }, { model: TrainingBatch, as: "trainingBatch", attributes: ["tb_name"], }, ], order: [ ["attempt_date", "DESC"], ["attempt_start_time", "DESC"], ], })
+370. controllers/quizController.js:479
+     Teacher.findOne({ where: { user_id: user_id }, })
+371. controllers/quizController.js:488
+     StudentQuiz.findAll({ where: { t_id: trainer.t_id, tb_id, }, attributes: [ "quiz_id", "quiz_code", "quiz_title", "quiz_passing_score", "quiz_time_limit", "quiz_attempts_limit", "quiz_created_on", [ sequelize.literal(`( SELECT COUNT(*) FROM student_quiz_questions WHERE student_quiz_questions.quiz_code = StudentQuiz.quiz_code )`), "question_count", ], ], order: [["quiz_created_on", "DESC"]], })
+372. controllers/quizController.js:512
+     StudentQuizQuestions.findAll({ where: { quiz_code: { [Op.in]: quizzes.map((quiz) => quiz.quiz_code), }, }, })
+373. controllers/quizController.js:542
+     Student.findOne({ where: { user_id: user_id }, })
+374. controllers/quizController.js:563
+     TrainerCenterAllocation.findAll({ where: { course_id: student.course_id, center_id: student.center_id, tb_id: student.tb_id, }, })
+375. controllers/quizController.js:581
+     StudentQuiz.findAll({ where: { t_id: { [Op.in]: classTrainerIds }, tb_id, }, })
+376. controllers/quizController.js:592
+     StudentQuizQuestions.findAll({ where: { quiz_code: { [Op.in]: quizCodes, }, }, })
+377. controllers/quizController.js:601
+     StudentQuizAttempts.findAll({ where: { std_cnic: student.std_cnic, tb_id, quiz_code: { [Op.in]: quizCodes, }, }, attributes: [ "quiz_code", "attempt_session", "attempt_status", "marks_obt", ], })
+378. controllers/quizController.js:659
+     StudentQuiz.findOne({ where: { quiz_code }, transaction: t, })
+379. controllers/quizController.js:723
+     StudentQuiz.findOne({ where: { quiz_code }, transaction: t, })
+380. controllers/quizController.js:774
+     StudentQuiz.findOne({ where: { quiz_code }, attributes: ["quiz_title", "quiz_passing_score"], // Include passing score })
+381. controllers/quizController.js:784
+     StudentQuizAttempts.findAll({ where: { quiz_code }, order: [["marks_obt", "DESC"]], })
+382. controllers/quizController.js:792
+     Student.findOne({ where: { std_cnic: attempt.std_cnic }, include: [ { model: User, as: "user", attributes: ["user_name", "user_email"], }, ], })
+383. controllers/studentController.js:65
+     User.findOne({ where: { user_email } })
+384. controllers/studentController.js:87
+     Student.findOne({ where: { std_cnic: cnic }, attributes: ["std_rollno", "tb_id"], raw: true, })
+385. controllers/studentController.js:287
+     Attendance.findAll({ where: { std_cnic: { [Op.in]: studentCNICs }, tb_id: tb_id, }, // attend_id resolves duplicate rows for one student/date (highest // wins); center_id and course_id group the class days per class. attributes: [ "attend_id", "std_cnic", "attend_status", "attend_date", "center_id", "course_id", ], raw: true, })
+386. controllers/studentController.js:565
+     Trainer.findOne({ where: { user_id } })
+387. controllers/studentController.js:574
+     TrainerCenterAllocation.findAll({ where: { t_id: trainer.t_id, tb_id }, })
+388. controllers/studentController.js:603
+     MasterTrainer.findAll({ where: { user_id }, attributes: ["mt_course_id"], })
+389. controllers/studentController.js:632
+     CenterManager.findOne({ where: { user_id } })
+390. controllers/studentController.js:733
+     TrainingBatch.findOne({ where: { tb_id }, attributes: ["tb_id", "tb_name", "tb_end"], raw: true })
+391. controllers/studentController.js:889
+     User.findOne({ where: { user_id: student.user_id } })
+392. controllers/studentController.js:898
+     TrainingBatch.findOne({ where: { tb_id: student.tb_id }, attributes: ["tb_end"], raw: true, })
+393. controllers/studentController.js:998
+     Student.findOne({ where: { std_rollno: req.body.std_rollno }, })
+394. controllers/studentController.js:1101
+     Student.findOne({ where: { user_id: student.user_id }, include: [ { model: User, as: "user", attributes: [ "user_name", "user_username", "user_email", "user_profile_photo", "user_status", "user_type", ], }, { model: Course, as: "courses", attributes: ["course_name", "course_full_name"], }, { model: Center, as: "centers", attributes: ["center_name"], }, ], })
+395. controllers/studentController.js:1161
+     Student.findOne({ where: { user_id: parseInt(user_id) }, include: [ { model: TrainingBatch, as: "training_batches", attributes: ["tb_id", "tb_name"], }, { model: Center, as: "centers", attributes: ["center_id", "center_name"], }, { model: Course, as: "courses", attributes: ["course_id", "course_name"], }, ], })
+396. controllers/studentController.js:1238
+     Student.findOne({ where: { std_cnic: std_cnic, }, transaction, })
+397. controllers/studentController.js:1311
+     Student.findOne({ where: { std_cnic: std_cnic, }, transaction, })
+398. controllers/studentLeaveController.js:27
+     studentLeave.findOne({ where: { sl_code: code } })
+399. controllers/studentLeaveController.js:58
+     StudentModel.findOne({ where: { user_id: userId } })
+400. controllers/studentLeaveController.js:121
+     studentLeave.findOne({ where: { std_cnic: student.std_cnic, tb_id: student.tb_id, sl_date }, })
+401. controllers/studentLeaveController.js:131
+     studentLeave.count({ where: { std_cnic: student.std_cnic, sl_month: month }, })
+402. controllers/studentLeaveController.js:218
+     StudentModel.findAll({ where: { std_cnic: { [Op.in]: cnics } }, attributes: ["std_cnic", "std_rollno"], include: [{ model: User, as: "user", attributes: ["user_name"] }], })
+403. controllers/studentLeaveController.js:254
+     StudentModel.findOne({ where: { user_id: user_id, }, })
+404. controllers/studentLeaveController.js:264
+     studentLeave.findAll({ where: { std_cnic: Student.std_cnic, }, include: [ { model: TrainingBatch, as: "training_batches" }, { model: Center, as: "centers" }, { model: Course, as: "courses" }, ], })
+405. controllers/studentLeaveController.js:316
+     studentLeave.findAll({ where, include: [ { model: TrainingBatch, as: "training_batches" }, { model: Center, as: "centers" }, { model: Course, as: "courses" }, ], order: [["sl_id", "DESC"]], })
+406. controllers/studentLeaveController.js:337
+     StudentModel.findByPk(req.params.user_id)
+407. controllers/studentLeaveController.js:344
+     studentLeave.findOne({ where: { std_cnic: Student.std_cnic, }, include: [ { model: TrainingBatch, as: "training_batches" }, { model: Center, as: "centers" }, { model: Course, as: "courses" }, ], })
+408. controllers/studentLeaveController.js:367
+     studentLeave.findByPk(req.params.id)
+409. controllers/studentLeaveController.js:374
+     TrainingBatch.findByPk(req.body.tb_id)
+410. controllers/studentLeaveController.js:380
+     Course.findByPk(req.body.course_id)
+411. controllers/studentLeaveController.js:386
+     Center.findByPk(req.body.center_id)
+412. controllers/studentLeaveController.js:400
+     studentLeave.findByPk(req.params.id)
+413. controllers/studentLeaveController.js:421
+     studentLeave.findOne({ where: { sl_code: sl_code, }, })
+414. controllers/studentPurgeController.js:117
+     Student.findByPk(std_id, { attributes: ["std_id", "std_cnic", "std_rollno", "user_id"], raw: true, transaction, })
+415. controllers/studentPurgeController.js:129
+     User.findByPk(student.user_id, { attributes: ["user_id", "user_name", "user_email", "user_profile_photo"], raw: true, transaction, })
+416. controllers/studentsDocsController.js:12
+     StudentsDocsModel.findAll()
+417. controllers/studentsDocsController.js:23
+     StudentModel.findOne({ where: { user_id: id } })
+418. controllers/studentsDocsController.js:27
+     StudentsDocsModel.findAll({ where: { std_cnic: student.std_cnic }, })
+419. controllers/studentsDocsController.js:45
+     StudentsModel.findOne({ where: { user_id: std_user_id }, })
+420. controllers/studentsDocsController.js:57
+     StudentsDocsModel.findOne({ where: { doc_type, std_cnic: Student.std_cnic }, })
+421. controllers/studentsDocsController.js:89
+     User.findOne({ where: { user_id: std_user_id } })
+422. controllers/studentsDocsController.js:96
+     StudentsDocsModel.findAll({ where: { std_cnic: Student.std_cnic }, })
+423. controllers/studentsDocsController.js:114
+     StudentsDocsModel.findByPk(req.params.id)
+424. controllers/ticketController.js:39
+     TrainerAlocation.findOne({ where: { tb_id: tb_id, center_id: center_id, course_id: course_id, }, })
+425. controllers/ticketController.js:46
+     Student.findOne({ where: { user_id: user_id, }, })
+426. controllers/ticketController.js:133
+     Student.findOne({ where: { user_id } })
+427. controllers/ticketController.js:138
+     Trainer.findOne({ where: { user_id } })
+428. controllers/ticketController.js:143
+     MasterTrainer.findOne({ where: { user_id } })
+429. controllers/ticketController.js:149
+     Ticket.findAll({ where: { ...whereClause, ...(user_type === "trainer" && { ticket_to: ["TRAINER", "trainer"] }), ...(user_type === "MasterTrainer" && { ticket_to: ["MT", "mt"] }), }, include: [ { model: Trainer, as: "trainers", attributes: ["t_id", "user_id"] }, { model: TrainingBatch, as: "training_batches", attributes: ["tb_id", "tb_name"], }, { model: Center, as: "centers", attributes: ["center_id", "center_name"], }, { model: Course, as: "courses", attributes: ["course_id", "course_name"], }, ], order: [["ticket_date", "DESC"]], })
+430. controllers/ticketController.js:180
+     Student.findAll({ where: { std_rollno: stdRollnos }, include: [ { model: User, as: "user", attributes: ["user_id", "user_name"] }, ], })
+431. controllers/ticketController.js:208
+     Ticket.findByPk(req.params.id, { include: [ { model: Trainer, as: "trainers" }, { model: TrainingBatch, as: "training_batches" }, { model: Center, as: "centers" }, { model: Course, as: "courses" }, ], })
+432. controllers/ticketController.js:224
+     TicketReply.findOne({ where: { ticket_no: ticket.ticket_no, }, order: [ ["reply_date", "ASC"], ["reply_time", "ASC"], ], })
+433. controllers/ticketController.js:235
+     Student.findOne({ where: { std_rollno: ticket.std_rollno, }, include: [ { model: User, as: "user", attributes: ["user_id", "user_name"] }, ], })
+434. controllers/ticketController.js:243
+     User.findOne({ where: { user_id: ticket.trainers.user_id, }, })
+435. controllers/ticketController.js:276
+     Ticket.findByPk(req.params.id)
+436. controllers/ticketController.js:307
+     Ticket.findByPk(req.params.id)
+437. controllers/ticketController.js:335
+     Ticket.findOne({ where: { ticket_no: ticket_no }, })
+438. controllers/ticketController.js:361
+     TicketReply.findOne({ where: { ticket_no: ticket_no }, })
+439. controllers/ticketController.js:415
+     TicketReply.findAll({ where: { ticket_no }, order: [ ["reply_date", "ASC"], ["reply_time", "ASC"], ], })
+440. controllers/topicController.js:4
+     Topic.findAll()
+441. controllers/topicController.js:9
+     Topic.findByPk(req.params.id)
+442. controllers/topicController.js:20
+     Topic.findByPk(req.params.id)
+443. controllers/topicController.js:27
+     Topic.findByPk(req.params.id)
+444. controllers/trainerAttendanceController.js:42
+     TrainerAttendanceModel.findOne({ where: { t_id: req.body.t_id, ta_date: req.body.ta_date, tb_id: req.body.tb_id, center_id: req.body.center_id, }, })
+445. controllers/trainerAttendanceController.js:95
+     TrainerCenterAllocation.findAll({ where: { t_id, ...(tb_id ? { tb_id } : {}), ...(center_id ? { center_id } : {}) }, attributes: ["tb_id", "center_id", "course_id"], raw: true, })
+446. controllers/trainerAttendanceController.js:132
+     TrainerCenterAllocation.findAll({ where: { t_id, ...(tb_id ? { tb_id } : {}) }, attributes: ["tb_id", "center_id", "course_id"], order: [["tb_id", "DESC"]], raw: true, })
+447. controllers/trainerAttendanceController.js:253
+     User.findByPk(trainer.user_id, { attributes: ["user_name"], raw: true })
+448. controllers/trainerAttendanceController.js:280
+     TrainerModel.findOne({ where: { user_id: actingUserId } })
+449. controllers/trainerAttendanceController.js:285
+     TrainerModel.findByPk(bodyTrainerId)
+450. controllers/trainerAttendanceController.js:332
+     TrainerAttendanceModel.findOne({ where: { t_id: trainer.t_id, tb_id, center_id, ta_date }, })
+451. controllers/trainerAttendanceController.js:455
+     TrainerAttendanceModel.findOne({ where: { t_id: trainer.t_id, ta_date, tb_id: cls.tb_id, center_id: cls.center_id }, })
+452. controllers/trainerAttendanceController.js:460
+     TrainerAttendanceModel.findOne({ where: { t_id: trainer.t_id, ta_date, checkout_time: null }, order: [["ta_id", "DESC"]], })
+453. controllers/trainerAttendanceController.js:552
+     TrainerModel.findOne({ where: { user_id: req.user && req.user.id } })
+454. controllers/trainerAttendanceController.js:576
+     TrainerCenterAllocation.findOne({ where: { t_id: trainer.t_id }, attributes: ["course_id"], order: [["tb_id", "DESC"]], raw: true })
+455. controllers/trainerAttendanceController.js:601
+     TrainerCenterAllocation.findAll({ where: allocWhere, attributes: ["t_id", "tb_id", "center_id", "course_id"], raw: true, })
+456. controllers/trainerAttendanceController.js:622
+     TrainerModel.findAll({ where: { t_id: { [Op.in]: trainerIds } }, attributes: ["t_id", "user_id"], include: [{ model: User, as: "user", attributes: ["user_name", "user_email"] }], })
+457. controllers/trainerAttendanceController.js:628
+     Center.findAll({ where: { center_id: { [Op.in]: centerIds } }, attributes: ["center_id", "center_name"], raw: true })
+458. controllers/trainerAttendanceController.js:629
+     Course.findAll({ where: { course_id: { [Op.in]: courseIds } }, attributes: ["course_id", "course_name"], raw: true })
+459. controllers/trainerAttendanceController.js:631
+     Holiday.findAll({ where: tb_id ? { tb_id } : {}, attributes: ["h_date", "center_id"], raw: true })
+460. controllers/trainerAttendanceController.js:632
+     TrainerAttendanceModel.findAll({ where: recordWhere, raw: true })
+461. controllers/trainerAttendanceController.js:635
+     TrainerAttendanceNote.findAll({ where: noteWhere, attributes: ["t_id", "ta_date", "kind", "reason"], order: [["created_at", "ASC"]], raw: true })
+462. controllers/trainerAttendanceController.js:692
+     TrainerModel.findOne({ where: { user_id: req.user && req.user.id } })
+463. controllers/trainerAttendanceController.js:710
+     TrainerAttendanceModel.findOne({ where: { t_id: trainer.t_id, ta_date: today, tb_id: cls.tb_id, center_id: cls.center_id }, })
+464. controllers/trainerAttendanceController.js:715
+     TrainerAttendanceModel.findOne({ where: { t_id: trainer.t_id, ta_date: today }, order: [["ta_id", "DESC"]], })
+465. controllers/trainerAttendanceController.js:839
+     TrainerAttendanceModel.findAll({ where, include: ["TrainingBatch", "Center", "Trainer", "Course"], order: [["ta_date", "DESC"]], limit: Math.min(Number(req.query.limit) || 500, 1000), })
+466. controllers/trainerAttendanceController.js:862
+     TrainerAttendanceModel.findByPk(id, { include: ["TrainingBatch", "Center", "Trainer", "Course"], })
+467. controllers/trainerAttendanceController.js:889
+     TrainerAttendanceModel.findAll({ where: { t_id }, include: ["TrainingBatch", "Center", "Trainer", "Course"], })
+468. controllers/trainerAttendanceController.js:910
+     TrainerAttendanceModel.findByPk(id)
+469. controllers/trainerAttendanceController.js:951
+     TrainerAttendanceModel.findByPk(id)
+470. controllers/trainerLeaveController.js:46
+     TrainingBatch.findByPk(tb_id)
+471. controllers/trainerLeaveController.js:47
+     Center.findByPk(center_id)
+472. controllers/trainerLeaveController.js:48
+     Course.findByPk(course_id)
+473. controllers/trainerLeaveController.js:49
+     Trainer.findByPk(t_id)
+474. controllers/trainerLeaveController.js:73
+     trainerLeave.count({ where: { t_id, tl_month, }, })
+475. controllers/trainerLeaveController.js:134
+     Trainer.findOne({ where: { user_id: user_id, }, })
+476. controllers/trainerLeaveController.js:139
+     User.findAll({ where: { user_id: user_id, }, })
+477. controllers/trainerLeaveController.js:152
+     TrainerCenterAllocation.findAll({ where: { tb_id: tb_id, t_id: Trainers.t_id, }, })
+478. controllers/trainerLeaveController.js:171
+     trainerLeave.findAll({ where: scopedWhere, include: [ { model: TrainingBatch, as: "training_batches" }, { model: Trainer, as: "trainers" }, { model: Center, as: "centers" }, { model: Course, as: "courses" }, ], })
+479. controllers/trainerLeaveController.js:197
+     MasterTrainer.findOne({ where: { user_id: user_id, }, })
+480. controllers/trainerLeaveController.js:211
+     trainerLeave.findAll({ where: { tb_id: tb_id, course_id: MTrainer.mt_course_id, }, include: [ { model: TrainingBatch, as: "training_batches" }, { model: Center, as: "centers" }, { model: Trainer, as: "trainers" }, { model: Course, as: "courses" }, ], })
+481. controllers/trainerLeaveController.js:224
+     trainerLeave.findAll({ where: { tb_id: tb_id, }, include: [ { model: TrainingBatch, as: "training_batches" }, { model: Center, as: "centers" }, { model: Trainer, as: "trainers" }, { model: Course, as: "courses" }, ], })
+482. controllers/trainerLeaveController.js:239
+     Trainer.findAll({ where: { t_id: trainerIds }, })
+483. controllers/trainerLeaveController.js:244
+     User.findAll({ where: { user_id: trainerUserIds }, attributes: ["user_id", "user_name", "user_email"], })
+484. controllers/trainerLeaveController.js:259
+     trainerLeave.findByPk(req.params.id, { include: [ { model: TrainingBatch, as: "training_batches" }, { model: Center, as: "centers" }, { model: Course, as: "courses" }, { model: Trainer, as: "trainers" }, ], })
+485. controllers/trainerLeaveController.js:279
+     trainerLeave.findByPk(req.params.id)
+486. controllers/trainerLeaveController.js:286
+     TrainingBatch.findByPk(req.body.tb_id)
+487. controllers/trainerLeaveController.js:292
+     Center.findByPk(req.body.course_id)
+488. controllers/trainerLeaveController.js:298
+     Course.findByPk(req.body.center_id)
+489. controllers/trainerLeaveController.js:312
+     trainerLeave.findByPk(req.params.id)
+490. controllers/trainerLeaveController.js:333
+     trainerLeave.findOne({ where: { tl_code: tl_code, }, })
+491. controllers/trainerLeaveController.js:391
+     trainerLeave.findOne({ where: { tl_code: tl_code, }, })
+492. controllers/trainersCenterAllocationController.js:10
+     TrainersCenterAllocationModel.findAll({ include: [ { model: TrainerModel, as: "trainers" }, { model: TrainingBatch, as: "training_batches" }, { model: Center, as: "center" }, ], })
+493. controllers/trainersCenterAllocationController.js:26
+     TrainersCenterAllocationModel.findByPk( req.params.id, { include: [ { model: TrainerModel, as: "trainers" }, { model: TrainingBatch, as: "training_batches" }, { model: Center, as: "center" }, ], } )
+494. controllers/trainersCenterAllocationController.js:55
+     TrainerModel.findByPk(t_id)
+495. controllers/trainersCenterAllocationController.js:56
+     TrainingBatch.findByPk(tb_id)
+496. controllers/trainersCenterAllocationController.js:57
+     Center.findByPk(t_center_id)
+497. controllers/trainersCenterAllocationController.js:58
+     Course.findByPk(t_course_id)
+498. controllers/trainersCenterAllocationController.js:80
+     TrainersCenterAllocationModel.findOne({ where: { tb_id, center_id: t_center_id, course_id: t_course_id }, })
+499. controllers/trainersCenterAllocationController.js:121
+     TrainersCenterAllocationModel.findByPk( req.params.id )
+500. controllers/trainersCenterAllocationController.js:133
+     TrainerModel.findByPk(req.body.t_id)
+501. controllers/trainersCenterAllocationController.js:142
+     TrainingBatch.findByPk(req.body.tb_id)
+502. controllers/trainersCenterAllocationController.js:151
+     Center.findByPk(req.body.t_center_id)
+503. controllers/trainersCenterAllocationController.js:168
+     TrainersCenterAllocationModel.findOne({ where: { tb_id: nextTb, center_id: nextCenter, course_id: nextCourse, tca_id: { [Op.ne]: allocation.tca_id }, }, })
+504. controllers/trainersCenterAllocationController.js:195
+     TrainersCenterAllocationModel.findByPk( req.params.id )
+505. controllers/trainersController.js:35
+     User.findOne({ where: { user_email, user_username, }, })
+506. controllers/trainersController.js:96
+     Student.findOne({ where: { user_id }, })
+507. controllers/trainersController.js:108
+     TrainerCenterAllocation.findOne({ where: { tb_id, center_id: student.center_id, course_id: student.course_id, }, order: [["t_id", "ASC"]], include: [ { model: Trainer, as: "trainer", attributes: ["user_id"], }, { model: Course, as: "course", attributes: ["course_full_name"], }, { model: Center, as: "center", attributes: ["center_name"], }, ], })
+508. controllers/trainersController.js:136
+     Trainer.findOne({ where: { t_id: trainerCenterAllocation.t_id }, })
+509. controllers/trainersController.js:142
+     User.findOne({ where: { user_id: trainer.user_id }, })
+510. controllers/trainersController.js:176
+     MasterTrainer.findOne({ where: { user_id: viewerId } })
+511. controllers/trainersController.js:182
+     CenterUser.findOne({ where: { user_id: viewerId }, })
+512. controllers/trainersController.js:190
+     TrainerCenterAllocation.findAll({ where: conditions, include: [ { model: Course, as: "course", attributes: [ "course_id", "course_name", "course_full_name", "course_status", ], }, { model: Center, as: "center", attributes: ["center_id", "center_name"], }, { model: TrainingBatch, as: "training_batch", attributes: ["tb_id", "tb_name"], }, { model: Trainer, as: "trainer", include: [ { model: User, as: "user", attributes: [ "user_id", "user_name", "user_username", "user_email", "user_type", "user_status", "user_profile_photo", ], }, ], }, ], })
+513. controllers/trainersController.js:416
+     Trainer.findByPk(trainerId, { attributes: { exclude: ["t_password"] }, })
+514. controllers/trainerTopicReportController.js:12
+     TrainerTopicReport.findAll({ where: whereClause })
+515. controllers/trainerTopicReportController.js:21
+     TrainerTopicReport.findByPk(req.params.id)
+516. controllers/trainerTopicReportController.js:40
+     TrainerTopicReport.findByPk(req.params.id)
+517. controllers/trainerTopicReportController.js:51
+     TrainerTopicReport.findByPk(req.params.id)
+518. controllers/trainerTopicReportController.js:65
+     TrainerTopicReport.findOne({ where: { trainer_id, tb_id, course_id, center_id, module_id, topic_id } })
+519. controllers/trainingBatchController.js:43
+     TrainingBatch.findAll()
+520. controllers/trainingBatchController.js:78
+     Trainer.findOne({ where: { user_id } })
+521. controllers/trainingBatchController.js:86
+     TrainerCenterAllocation.findAll({ where: { t_id: trainer.t_id }, attributes: ["tb_id"], group: ["tb_id"], })
+522. controllers/trainingBatchController.js:100
+     TrainingBatch.findAll({ where: { tb_id: { [Op.in]: batchIds } }, order: [["tb_id", "DESC"]], })
+523. controllers/trainingBatchController.js:131
+     TrainingBatch.findByPk(id)
+524. controllers/trainingBatchController.js:160
+     TrainingBatch.findByPk(id)
+525. controllers/userController.js:23
+     User.findOne({ where: { user_username, user_status: 1, // Only active admins }, attributes: [ "user_id", "user_username", "user_password", "user_type", "user_status", ], })
+526. controllers/userController.js:92
+     User.findByPk(adminId, { attributes: { exclude: ["user_password"] }, })
+527. controllers/userController.js:130
+     User.findByPk(adminId)
+528. controllers/weeklyEvaluationController.js:83
+     MasterTrainer.findOne({ where: { user_id: user.id }, attributes: ["mt_id", "user_id", "mt_course_id"], raw: true, })
+529. controllers/weeklyEvaluationController.js:96
+     Center.findAll({ where: { center_id: ids("center_id") }, raw: true })
+530. controllers/weeklyEvaluationController.js:97
+     Course.findAll({ where: { course_id: ids("course_id") }, raw: true })
+531. controllers/weeklyEvaluationController.js:98
+     TrainingBatch.findAll({ where: { tb_id: ids("tb_id") }, raw: true })
+532. controllers/weeklyEvaluationController.js:127
+     Trainer.findAll({ where: { t_id: allocated.map((entry) => entry.t_id) }, attributes: ["t_id", "user_id", "t_cnic", "t_course_id"], include: [{ model: User, as: "user", attributes: ["user_name", "user_email"] }], })
+533. controllers/weeklyEvaluationController.js:176
+     MasterTrainer.findAll({ where: { mt_id: unique }, attributes: ["mt_id"], include: [{ model: User, as: "user", attributes: ["user_name"] }], })
+534. controllers/weeklyEvaluationController.js:226
+     WeeklyEvaluation.findAll({ where: { we_week_key: week.key, tb_id, t_id: trainers.map((entry) => entry.t_id), }, attributes: ["we_id", "t_id", "we_status", "we_submitted_on"], raw: true, })
+535. controllers/weeklyEvaluationController.js:285
+     Trainer.findOne({ where: { t_id }, include: [{ model: User, as: "user", attributes: ["user_name", "user_email"] }], })
+536. controllers/weeklyEvaluationController.js:330
+     WeeklyEvaluation.findOne({ where: { t_id, tb_id, we_week_key: week.key }, })
+537. controllers/weeklyEvaluationController.js:435
+     Trainer.findOne({ where: { t_id }, raw: true })
+538. controllers/weeklyEvaluationController.js:465
+     WeeklyEvaluation.findOne({ where: { t_id, tb_id, we_week_key: week.key }, })
+539. controllers/weeklyEvaluationController.js:612
+     WeeklyEvaluation.findAll({ where: { ...scope, t_id, ...(tb_id ? { tb_id } : {}), // A draft is the author's own working copy. An admin reading the // history should see what was signed off, not what is half-typed. ...(isViewer(req.user) ? { we_status: { [Op.in]: ["submitted", "reviewed"] } } : {}), }, order: [["we_week_start", "DESC"]], })
+540. controllers/weeklyEvaluationController.js:648
+     WeeklyEvaluation.findOne({ where: { ...scope, we_id: Number(req.params.id) || 0 }, include: [ { model: Trainer, as: "trainer", attributes: ["t_id", "t_cnic"], include: [{ model: User, as: "user", attributes: ["user_name", "user_email"] }], }, ], })
+541. controllers/weeklyEvaluationController.js:707
+     TrainerCenterAllocation.findAll({ where: { tb_id }, attributes: ["t_id", "center_id", "course_id"], raw: true, })
+542. controllers/weeklyEvaluationController.js:741
+     Trainer.findAll({ where: { t_id: teachingIds }, attributes: ["t_id", "mt_id", "t_cnic", "t_course_id"], include: [{ model: User, as: "user", attributes: ["user_name"] }], })
+543. controllers/weeklyEvaluationController.js:748
+     WeeklyEvaluation.findAll({ where: { we_week_key: week.key, tb_id }, attributes: ["we_id", "t_id", "mt_id", "we_status", "we_submitted_on", "we_quality"], raw: true, })
+544. controllers/weeklyEvaluationController.js:753
+     MasterTrainer.findAll({ attributes: ["mt_id", "user_id", "mt_course_id"], include: [{ model: User, as: "user", attributes: ["user_name"] }], })
+545. controllers/weeklyEvaluationController.js:840
+     WeeklyEvaluation.findOne({ where: { we_id: Number(req.params.id) || 0 }, })
+546. controllers/weeklyEvaluationController.js:861
+     User.findOne({ where: { user_id: req.user.id }, attributes: ["user_name"], raw: true, })
+547. controllers/weeklyEvaluationController.js:932
+     TrainerCenterAllocation.findAll({ where: { course_id: mt.mt_course_id }, attributes: ["t_id", "tb_id", "center_id"], raw: true, })
+548. controllers/weeklyEvaluationController.js:968
+     WeeklyEvaluation.findAll({ where: { tb_id, t_id: trainers, we_week_key: weeks.map((week) => week.key), we_status: { [Op.in]: ["submitted", "reviewed"] }, }, attributes: ["t_id", "we_week_key"], raw: true, })
+549. middleware/auth.js:9
+     User.findOne({ where: { id: decoded.id }, attributes: { exclude: ["password"] }, })
+550. middleware/authMiddleware.js:101
+     User.findByPk(decoded.id)
+551. middleware/centersValidation.js:10
+     Center.findOne({ where: { center_name: value }, })
+552. middleware/centersValidation.js:25
+     Center.findOne({ where: { center_location: value }, })
+553. middleware/trainingBatchValidation.js:10
+     TrainingBatch.findOne({ where: { tb_name: value }, })
+554. utils/assignmentAccess.js:33
+     Trainer.findOne({ where: { user_id: user.id } })
+555. utils/assignmentAccess.js:38
+     TrainerCenterAllocation.findAll({ where: { t_id: trainer.t_id, ...(tb_id ? { tb_id } : {}) }, })
+556. utils/assignmentAccess.js:46
+     Student.findOne({ where: { user_id: user.id } })
+557. utils/attendanceCalculator.js:185
+     Attendance.findAll({ where, attributes: ["attend_id", "std_cnic", "attend_date", "attend_status"], raw: true, })
+558. utils/attendanceCalculator.js:235
+     Attendance.findAll({ where, attributes: ["attend_id", "std_cnic", "attend_date", "attend_status"], raw: true, })
+559. utils/brevoContactCleanup.js:64
+     BrevoContact.findOrCreate({ where: { bc_email: address }, defaults: { bc_email: address, bc_delete_after: deleteAfter }, })
+560. utils/brevoContactCleanup.js:105
+     BrevoContact.findAll({ where: { bc_delete_after: { [Op.lte]: new Date() }, bc_attempts: { [Op.lt]: MAX_ATTEMPTS }, }, order: [["bc_delete_after", "ASC"]], limit: MAX_PER_SWEEP, })
+561. utils/classSchedule.js:178
+     ClassSchedule.findAll({ where, order: [["cs_start_date", "DESC"], ["cs_id", "DESC"]], raw: true })
+562. utils/classSchedule.js:196
+     Holiday.findAll({ where, attributes: ["h_date", "center_id"], raw: true })
+563. utils/contactUniqueness.js:116
+     User.findOne({ where: { user_email: email, ...(ignore.user_id ? { user_id: { [Op.ne]: ignore.user_id } } : {}), }, attributes: ["user_id"], })
+564. utils/contactUniqueness.js:125
+     Student.findOne({ where: { user_id: user.user_id, ...LIVE_STUDENT, ...(ignore.std_id ? { std_id: { [Op.ne]: ignore.std_id } } : {}), }, attributes: ["std_id"], })
+565. utils/contactUniqueness.js:139
+     Candidate.findOne({ where: { cand_email: email, tb_id, ...(ignore.cand_id ? { cand_id: { [Op.ne]: ignore.cand_id } } : {}), }, attributes: ["cand_id"], })
+566. utils/contactUniqueness.js:151
+     Student.findAll({ where: { std_phone: phoneMatches(key), ...LIVE_STUDENT, ...(ignore.std_id ? { std_id: { [Op.ne]: ignore.std_id } } : {}), }, attributes: ["std_id", "std_phone"], limit: PHONE_CANDIDATE_LIMIT, })
+567. utils/contactUniqueness.js:164
+     Candidate.findAll({ where: { cand_phone: phoneMatches(key), tb_id, ...(ignore.cand_id ? { cand_id: { [Op.ne]: ignore.cand_id } } : {}), }, attributes: ["cand_id", "cand_phone"], limit: PHONE_CANDIDATE_LIMIT, })
+568. utils/emailCampaignDispatcher.js:231
+     EmailCampaignRecipient.findAll({ where: { ec_id: campaign.ec_id, ecr_status: { [Op.in]: ["pending", "failed"] }, ecr_attempts: { [Op.lt]: MAX_ATTEMPTS }, }, // No joins. A recipient is an address; there is nothing behind it to load, // and the message does not vary by person. The old candidate/student // includes were not just unnecessary work - the student one failed every // chunk with "user is associated to student using an alias". order: [["ecr_id", "ASC"]], limit: Math.max(1, Number(campaign.ec_batch_size) || 25), })
+569. utils/emailCampaignDispatcher.js:338
+     EmailCampaignRecipient.count({ where: { ec_id: campaign.ec_id, ecr_status: { [Op.in]: ["pending", "failed"] }, ecr_attempts: { [Op.lt]: MAX_ATTEMPTS }, }, })
+570. utils/emailCampaignDispatcher.js:412
+     EmailCampaign.findAll({ where: { ec_status: "running", // Skip anything already draining rather than filtering it out later, // so the LIMIT below is spent on campaigns that can actually start. ...(busy.length ? { ec_id: { [Op.notIn]: busy } } : {}), [Op.or]: [ { ec_next_run_at: null }, { ec_next_run_at: { [Op.lte]: now } }, ], }, // No center/batch join: the message no longer mentions either, so // loading them was work whose result was never read. // Oldest due first, so a campaign cannot be starved by newer ones // repeatedly winning the free slots. order: [["ec_next_run_at", "ASC"], ["ec_id", "ASC"]], limit: capacity, })
+571. utils/emailOutbox.js:176
+     EmailOutbox.findAll({ where: { eo_status: "pending", eo_next_attempt_at: { [Op.lte]: new Date() }, }, // Mail somebody is waiting on goes first, then oldest. order: [ ["eo_priority", "DESC"], ["eo_next_attempt_at", "ASC"], ], limit: BATCH_SIZE, })
+572. utils/emailOutbox.js:266
+     EmailOutbox.count({ where: { eo_status: "pending" } })
+573. utils/emailQuota.js:70
+     EmailSendQuota.findOrCreate({ where: { esq_date: todayKey() }, defaults: { esq_date: todayKey(), ...ZERO_COLUMNS }, })
+574. utils/evaluationMetrics.js:50
+     TrainerCenterAllocation.findAll({ where: { t_id, ...(tb_id ? { tb_id } : {}) }, attributes: ["center_id", "course_id", "tb_id"], raw: true, })
+575. utils/evaluationMetrics.js:90
+     DailyLectureReport.findAll({ where: { t_id, // Narrowed to the batch. A trainer running two batches files a lecture // report for each, and counting both would tick a day on this report // because a class in a different batch was taught. ...(tb_id ? { tb_id } : {}), dlr_date: { [Op.between]: [week.start, week.end] }, }, attributes: ["dlr_date"], raw: true, })
+576. utils/evaluationMetrics.js:117
+     Assignment.count({ where: { t_id, ...(tb_id ? { tb_id } : {}), // as_added_on is a real DATETIME, so the day itself has to be included // up to its last moment or everything set on Friday is missed. as_added_on: { [Op.between]: [`${week.start} 00:00:00`, `${week.end} 23:59:59`], }, }, })
+577. utils/evaluationMetrics.js:131
+     StudentQuiz.count({ where: { t_id, ...(tb_id ? { tb_id } : {}), quiz_created_on: { [Op.between]: [week.start, week.end] }, }, })
+578. utils/evaluationMetrics.js:153
+     Student.count({ where: { ...scope, std_added_on: { [Op.lt]: `${week.start} 00:00:00` }, std_lms_status: { [Op.ne]: 2 }, }, })
+579. utils/evaluationMetrics.js:167
+     Student.count({ where: { ...scope, std_added_on: { [Op.between]: [`${week.start} 00:00:00`, `${week.end} 23:59:59`], }, }, })
+580. utils/evaluationMetrics.js:259
+     Attendance.findAll({ where: { ...scope, attend_date: { [Op.in]: week.days.map((day) => day.date) }, }, attributes: ["attend_id", "std_cnic", "center_id", "course_id", "attend_date", "attend_status"], raw: true, })
+581. utils/evaluationMetrics.js:320
+     StudentLeave.findAll({ where: { ...scope, sl_status: 1, sl_date: { [Op.between]: [week.start, week.end] }, }, attributes: ["std_cnic"], raw: true, })
+582. utils/evaluationScope.js:28
+     Center.findAll({ where: { center_id: { [Op.in]: ids } }, attributes: ["center_id", "center_medium"], raw: true, })
+583. utils/evaluationScope.js:76
+     TrainerCenterAllocation.findAll({ where: { course_id: courseId, tb_id }, attributes: ["t_id", "center_id", "course_id", "tb_id"], raw: true, })
+584. utils/evaluationScope.js:99
+     TrainerCenterAllocation.findAll({ where: { t_id, tb_id }, attributes: ["center_id", "course_id", "tb_id"], raw: true, })
+585. utils/evaluationScope.js:135
+     CentersDates.findAll({ where: { tb_id, center_id: { [Op.in]: centerIds } }, attributes: ["center_id", "tb_start", "tb_end"], raw: true, })
+586. utils/notify.js:85
+     StudentModel.findAll({ where, attributes: ["user_id"], raw: true })
+587. utils/notify.js:106
+     StudentModel.findOne({ where, attributes: ["user_id"], raw: true })
+588. utils/notify.js:118
+     TrainerModel.findOne({ where: { t_id }, attributes: ["user_id"], raw: true })
+589. utils/notify.js:146
+     Allocation.findAll({ where, attributes: ["t_id"], raw: true })
+590. utils/notify.js:149
+     TrainerModel.findAll({ where: { t_id: { [Op.in]: tIds } }, attributes: ["user_id"], raw: true })
+591. utils/notify.js:162
+     MasterTrainer.findAll({ where: { mt_course_id: course_id }, attributes: ["user_id"], raw: true })
+592. utils/notify.js:175
+     MasterTrainer.findOne({ where: { mt_id }, attributes: ["user_id"], raw: true })
+593. utils/notify.js:188
+     StudentModel.findAll({ where: { std_cnic: { [Op.in]: unique } }, attributes: ["user_id"], raw: true })
+594. utils/notify.js:201
+     User.findAll({ where: { user_type: { [Op.in]: ADMIN_TYPES }, user_status: 1 }, attributes: ["user_id"], raw: true, })
+595. utils/onlineReportScope.js:35
+     TrainerCenterAllocation.findAll({ where: { tb_id }, attributes: ["center_id", "course_id"], raw: true, })
+596. utils/onlineReportScope.js:44
+     Center.findAll({ where: { center_id: { [Op.in]: centerIds } }, attributes: ["center_id", "center_name", "center_medium"], raw: true, })
+597. utils/onlineReportScope.js:68
+     Course.findAll({ where: { course_id: { [Op.in]: allCourseIds } }, attributes: ["course_id", "course_name", "course_full_name"], raw: true, })
+598. utils/refreshTokens.js:30
+     model().findOne({ where: { token_hash: hash(raw) } })
+599. utils/studentProfilePhoto.js:123
+     StudentsDocs.findAll({ where: { std_cnic: cnic, doc_type: PASSPORT_DOC_TYPE }, raw: true, })
+600. utils/trainerAttendanceReminder.js:51
+     TrainingBatch.findAll({ attributes: ["tb_id", "tb_start", "tb_end"], raw: true })
+601. utils/trainerAttendanceReminder.js:73
+     TrainerCenterAllocation.findAll({ where: { tb_id: { [Op.in]: batches } }, attributes: ["t_id", "tb_id", "center_id", "course_id"], raw: true, })
+602. utils/trainerAttendanceReminder.js:115
+     TrainerAttendanceModel.findAll({ where: { ta_date: today, t_id: { [Op.in]: [...new Set(due.map((d) => Number(d.a.t_id)))] } }, attributes: ["t_id", "center_id", "checkin_time", "checkout_time"], raw: true, })
+603. utils/trainerAttendanceReminder.js:124
+     DailyLectureReport.findAll({ where: { dlr_date: today, t_id: { [Op.in]: [...new Set(due.map((d) => Number(d.a.t_id)))] } }, attributes: ["t_id"], raw: true, })
+604. utils/trainerAttendanceReminder.js:135
+     Notification.findAll({ where: { entity_type: "attendance_reminder", entity_id: { [Op.in]: keys } }, attributes: ["entity_id"], raw: true, })
+605. utils/trainerAttendanceReminder.js:189
+     TrainerModel.findOne({ where: { t_id: d.a.t_id }, attributes: ["t_id", "user_id"], include: [{ model: User, as: "user", attributes: ["user_name"] }], })
+606. utils/trainerScope.js:64
+     Trainer.findOne({ where: { user_id } })
+607. utils/trainerScope.js:72
+     TrainerCenterAllocation.findAll({ where })
+608. utils/visitScope.js:38
+     TrainerCenterAllocation.findAll({ where: { tb_id }, attributes: ["center_id"], raw: true, })
+609. utils/visitScope.js:48
+     Center.findAll({ where: { center_id: { [Op.in]: teachingIds } }, attributes: ["center_id", "center_name", "center_medium", "center_status"], raw: true, })
+610. utils/visitScope.js:53
+     CentersDates.findAll({ where: { tb_id, center_id: { [Op.in]: teachingIds } }, attributes: ["center_id", "tb_start", "tb_end"], raw: true, })
+
+D. ORM / RAW READS - OPERATIONAL SCRIPTS
+These execute only when the corresponding maintenance script is run.
+001. scripts/backfill-profile-photos.js:55
+     Student.findAll({ where: onlyBatch ? { tb_id: onlyBatch } : {}, attributes: ["std_id", "std_cnic", "std_rollno", "tb_id", "user_id"], })
+002. scripts/backfill-profile-photos.js:70
+     User.findOne({ where: { user_id: student.user_id } })
+003. scripts/backfill-student-details.js:107
+     Student.findAll({ where, attributes: ["std_id", "std_cnic", "tb_id", "std_district", "std_qualification"], })
+004. scripts/backfill-student-details.js:130
+     Candidate.findAll({ where: { cand_cnic: { [Op.in]: [ ...new Set( gaps.flatMap((student) => { const digits = normaliseCnic(student.std_cnic); if (!digits) return []; // Both spellings, because either table may hold either. return [ digits, `${digits.slice(0, 5)}-${digits.slice(5, 12)}-${digits.slice(12)}`, String(student.std_cnic || "").trim(), ]; }) ), ], }, }, attributes: ["cand_id", "cand_cnic", "tb_id", "cand_local_domicile", "cand_degree_level"], })
+005. scripts/clean-duplicate-allocations.js:43
+     TrainerCenterAllocation.findAll({ attributes: ["tca_id", "t_id", "course_id", "center_id", "tb_id"], order: [["tca_id", "ASC"]], raw: true, })
+006. scripts/clean-duplicate-assignments.js:48
+     Assignment.findAll({ attributes: ["as_id", "as_group_id", "as_title", "tb_id", "center_id", "course_id"], order: [["as_id", "ASC"]], raw: true, })
+007. scripts/clean-duplicate-assignments.js:84
+     AssignmentSubmission.findAll({ where: { as_id: { [Op.in]: candidates.map((row) => row.as_id) } }, attributes: ["as_id"], raw: true, })
+
+END OF INVENTORY

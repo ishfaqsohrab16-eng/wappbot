@@ -85,29 +85,3 @@ export function queryTokens(text) {
   }
   return out;
 }
-
-/**
- * Hints for exact identifiers (CNIC, phone, email) whose stored format may differ
- * from what the user typed.
- */
-export function identifierHints(text) {
-  const t = String(text || "");
-  const hints = [];
-  for (const m of t.matchAll(/\b(\d{5})[-\s]?(\d{7})[-\s]?(\d)\b/g)) {
-    const digits = m[1] + m[2] + m[3];
-    hints.push(
-      `CNIC ${m[0]}: it may be stored with or without dashes. Match with REPLACE(REPLACE(<cnic column>,'-',''),' ','') = '${digits}'.`
-    );
-  }
-  for (const m of t.matchAll(/(?:\+?92|0092|\b0)?[-\s]?(3\d{2})[-\s]?(\d{7})\b/g)) {
-    const core = m[1] + m[2];
-    if (hints.some((h) => h.includes(core))) continue;
-    hints.push(
-      `Phone ${m[0].trim()}: may be stored as 0${core}, 92${core} or +92${core}. Match with REPLACE(REPLACE(<phone column>,'-',''),' ','') LIKE '%${core}'.`
-    );
-  }
-  for (const m of t.matchAll(/[\w.+-]+@[\w-]+\.[\w.]+/g)) {
-    hints.push(`Email ${m[0]}: match case-insensitively with LOWER(<email column>) = '${m[0].toLowerCase()}'.`);
-  }
-  return hints;
-}
